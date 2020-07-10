@@ -10,6 +10,8 @@ RUN apt update && apt install -y \
   gazebo9 \
   libgazebo9-dev \
   ros-melodic-gazebo-ros \
+  ros-melodic-gazebo-ros-pkgs \
+  ros-melodic-gazebo-ros-control \
   ros-melodic-xacro \
   # gzweb stuff
   pkg-config \
@@ -23,31 +25,32 @@ RUN apt update && apt install -y \
   && apt install -y nodejs \
   && rm -rf /var/lib/apt/lists/*
 
+# download gazebo models
+RUN curl -sL https://github.com/osrf/gazebo_models/archive/master.zip -o models.zip \
+  && unzip models.zip && rm models.zip && mv -n gazebo_models-master/* /usr/share/gazebo-9/models/
+    
 # build gzweb
 ENV GZWEB_WS=/gzweb
 WORKDIR ${GZWEB_WS}
-RUN curl -SL https://github.com/osrf/gzweb/archive/master.zip -o gzweb.zip \
+RUN curl -sL https://github.com/osrf/gzweb/archive/master.zip -o gzweb.zip \
   && unzip gzweb.zip && rm gzweb.zip && mv gzweb-master/* . \
   && . /usr/share/gazebo/setup.sh \
-  && xvfb-run -s "-screen 0 1280x1024x24" ./deploy.sh -m
-  #&& xvfb-run -s "-screen 0 1280x1024x24" ./deploy.sh -m local
+  && xvfb-run -s "-screen 0 1280x1024x24" ./deploy.sh -m local -t
 
+# install husky sim
+ENV GZWEB_ASSETS=${GZWEB_WS}/http/client/assets
+ENV ROS_SHARE=/opt/ros/melodic/share
+RUN apt update && apt install -y \
+  ros-melodic-husky-simulator \
+  && rm -rf /var/lib/apt/lists/* \
+  && cp -rn ${ROS_SHARE}/husky_description/meshes/* ${GZWEB_ASSETS}/husky/meshes \
+  && find ${ROS_SHARE}/husky_description -name "*.urdf*" -exec sed -i 's/package:\/\/husky_description/model:\/\/husky/g' {} +
+
+# build catkin packages
 ENV CATKIN_WS=/opt/catkin_ws
-
-#WORKDIR ${CATKIN_WS}/src
-## setup turtlebot3 sim
-#ADD https://github.com/ROBOTIS-GIT/turtlebot3_simulations/archive/master.zip .
-#RUN unzip '*.zip' && rm *.zip \
-#  && apt update && rosdep update \
-#  && rosdep install --from-paths . --ignore-src -r -y \
-#  && rm -rf /var/lib/apt/lists/*
-#
-#RUN cd turtlebot3_simulations-master/turtlebot3_gazebo \
-#  && find models/ -name "materials" -exec cp -rn {} media \; \
-#  && find models/ -name "meshes" -exec cp -rn {} media \; \
-#  && mv media models
-
-# build catkin package 
 WORKDIR ${CATKIN_WS}
 RUN mkdir src
 RUN . /opt/ros/melodic/setup.sh && catkin init && catkin build -DCMAKE_BUILD_TYPE=Release --force-color
+
+CMD . ${CATKIN_WS}/devel/setup.sh && roslaunch husky_gazebo husky_empty_world.launch & \
+  cd ${GZWEB_WS} && npm start

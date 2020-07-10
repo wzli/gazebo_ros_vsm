@@ -1,0 +1,15 @@
+---
+version: "2.2"
+
+services:
+  sim_node:
+    scale: 1
+    image: gazebo_ros_vsm_demo
+    environment:
+      - SIM_RADIUS=20
+      - SIM_DENSITY=0.04
+      - SIM_INTERVAL=50
+      - CONNECTION_DEGREE=4
+    build:
+      dockerfile: docker/Dockerfile
+      context: ..

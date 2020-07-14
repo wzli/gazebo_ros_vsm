@@ -42,6 +42,7 @@ ENV GZWEB_ASSETS=${GZWEB_WS}/http/client/assets
 ENV ROS_SHARE=/opt/ros/melodic/share
 RUN apt update && apt install -y \
   ros-melodic-husky-simulator \
+  ros-melodic-husky-navigation \
   && rm -rf /var/lib/apt/lists/* \
   && cp -rn ${ROS_SHARE}/husky_description/meshes/* ${GZWEB_ASSETS}/husky/meshes \
   && find ${ROS_SHARE}/husky_description -name "*.urdf*" -exec sed -i 's/package:\/\/husky_description/model:\/\/husky/g' {} +
@@ -49,8 +50,8 @@ RUN apt update && apt install -y \
 # build catkin packages
 ENV CATKIN_WS=/opt/catkin_ws
 WORKDIR ${CATKIN_WS}
-RUN mkdir src
+COPY gazebo_vsm_demo src/gazebo_vsm_demo
 RUN . /opt/ros/melodic/setup.sh && catkin init && catkin build -DCMAKE_BUILD_TYPE=Release --force-color
 
-CMD . ${CATKIN_WS}/devel/setup.sh && roslaunch husky_gazebo husky_empty_world.launch & \
-  cd ${GZWEB_WS} && npm start
+CMD bash -c "source ${CATKIN_WS}/devel/setup.bash && roslaunch gazebo_vsm_demo gazebo_vsm_demo.launch" \
+  & cd ${GZWEB_WS} && npm start

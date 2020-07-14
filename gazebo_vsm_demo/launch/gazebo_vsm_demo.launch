@@ -1,4 +1,7 @@
 <launch>
+  <arg name="x" default="0.0"/>
+  <arg name="y" default="0.0"/>
+  <arg name="yaw" default="0.0"/>
 
   <include file="$(find gazebo_ros)/launch/empty_world.launch">
     <arg name="world_name" value="$(find husky_gazebo)/worlds/clearpath_playpen.world"/>
@@ -12,6 +15,13 @@
   <include file="$(find husky_gazebo)/launch/spawn_husky.launch">
     <arg name="laser_enabled" value="true"/>
     <arg name="kinect_enabled" value="false"/>
+    <arg name="x" value="$(arg x)"/>
+    <arg name="y" value="$(arg y)"/>
+    <arg name="yaw" value="$(arg yaw)"/>
   </include>
+
+  <include file="$(find husky_navigation)/launch/move_base_mapless_demo.launch"></include>
+
+  <node name="random_walk" pkg="gazebo_vsm_demo" type="random_walk" output="screen"></node>
 
 </launch>

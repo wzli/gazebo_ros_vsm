@@ -5,11 +5,12 @@ services:
   sim_node:
     scale: 1
     image: gazebo_ros_vsm_demo
+    ports:
+      - 8080
     environment:
-      - SIM_RADIUS=20
-      - SIM_DENSITY=0.04
-      - SIM_INTERVAL=50
-      - CONNECTION_DEGREE=4
+      - SPAWN_X=0
+      - SPAWN_Y=0
+      - SPAWN_YAW=0
     build:
       dockerfile: docker/Dockerfile
       context: ..

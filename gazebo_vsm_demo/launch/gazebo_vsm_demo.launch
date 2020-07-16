@@ -1,7 +1,7 @@
 <launch>
-  <arg name="x" default="0.0"/>
-  <arg name="y" default="0.0"/>
-  <arg name="yaw" default="0.0"/>
+  <arg name="x" default="$(optenv SPAWN_X 0)"/>
+  <arg name="y" default="$(optenv SPAWN_Y 0)"/>
+  <arg name="yaw" default="$(optenv SPAWN_YAW 0)"/>
 
   <include file="$(find gazebo_ros)/launch/empty_world.launch">
     <arg name="extra_gazebo_args" value="-s libgazebo_vsm.so"/>

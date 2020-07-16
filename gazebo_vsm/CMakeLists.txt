@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.13.0)
 project(gazebo_vsm)
 
 cmake_policy(SET CMP0054 OLD)
@@ -11,6 +11,9 @@ find_package(catkin REQUIRED COMPONENTS
 )
 
 find_package(gazebo REQUIRED)
+
+# VSM setup
+add_subdirectory(VirtualSpaceMeshnet)
 
 ###################################
 ## catkin specific configuration ##
@@ -35,12 +38,12 @@ include_directories(
 )
 
 add_library(${PROJECT_NAME} src/gazebo_vsm.cpp)
-target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
+target_link_libraries(${PROJECT_NAME} vsm ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
 
 #############
 ## Install ##
 #############
 
-install(TARGETS ${PROJECT_NAME}
+install(TARGETS ${PROJECT_NAME} vsm libzmq
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
 )

@@ -1,3 +1,71 @@
 ---
 # Virtual Space Meshnet Config
-node_name: $PATH
+
+# Display name of this node.
+name: $MESH_NAME
+
+# Publicly reachable network hostname or address.
+address: $MESH_ADDRESS
+
+# UDP port of the mesh network.
+port: $MESH_PORT
+
+# (meters)
+# Default center of simulation.
+initial_coordinates: [0, 0, 0]
+
+# (meters)
+# Radius of simulation influence.
+# Use -inf for observer nodes.
+power_radius: 0
+
+# Number of directly connected peers to maintain
+connection_degree: 6
+
+# Max number of peers to keep track of.
+peer_lookup_size: 256
+
+# Max number of stale entity timestamps to store.
+# Lookup is queried to reject already received updates.
+timestamp_lookup_size: 1024
+
+# Rate of rank decay every peer update cycle.
+# Used to prune unresponsive peers.
+peer_rank_decay: 0.005
+
+# (miliseconds)
+# How often to broadcast peer update beacon.
+peer_update_interval: 500
+
+# (miliseconds)
+# How often to poll for expired entities.
+entity_expiry_interval: 500
+
+# (bytes)
+# Size of entities payload, message size aprox 600B more but may vary.
+# Use to limit message size incase network MTU is exceeded.
+entity_updates_size: 7000
+
+# Verbosity levels
+# 0 - Trace
+# 1 - Debug
+# 2 - Info
+# 3 - Warn
+# 4 - Error
+# 5 - Fatal
+verbosity: 3
+
+# Name of entity to center simulation around.
+tracked_entity: $MESH_NAME
+
+synced_entities:
+  - a:
+      filter: 0
+      hop_limit: 0
+      range: 0
+      expiry: 0
+  - b:
+      filter: 0
+      hop_limit: 0
+      range: 0
+      expiry: 0

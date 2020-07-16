@@ -37,7 +37,7 @@ add_library(${PROJECT_NAME} src/gazebo_vsm.cpp)
 target_link_libraries(${PROJECT_NAME}
   ${catkin_LIBRARIES}
   ${GAZEBO_LIBRARIES}
-  ${YAMLCPP_LIBRARY}
+  yaml-cpp
   vsm
 )
 

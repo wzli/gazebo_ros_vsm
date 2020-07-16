@@ -1,17 +1,27 @@
 #include <gazebo_vsm/gazebo_vsm.hpp>
 #include <vsm/zmq_transport.hpp>
-#include <yaml-cpp/yaml.h>
 
+#include <cstdlib>
 #include <exception>
 #include <iostream>
 
 namespace gazebo {
 
 void GazeboVsm::Load(int argc, char** argv) {
-    for (int i = 0; i < argc; ++i) {
-        puts(argv[i]);
+    // parse arguments for config file path
+    for (int i = 1; i < argc; ++i) {
+        const char* yaml_path = strstr(argv[i], "--vsm-config=");
+        if(yaml_path) {
+            // parse config file
+            _yaml = YAML::LoadFile(yaml_path + 13);
+            break;
+        }
     }
-    puts("SYSTEM PLUGIN LOADED");
+    if(!_yaml) {
+        throw std::runtime_error("VSM plugin: failed to parse param --vsm-config=[vsm_config.yaml]");
+    }
+
+    puts(yamlString(_yaml["node_name"]).c_str());
 
     _world_created_event = gazebo::event::Events::ConnectWorldCreated(
             [this](std::string world_name) { onWorldCreated(std::move(world_name)); });
@@ -43,6 +53,11 @@ void GazeboVsm::onWorldCreated(std::string world_name) {
             std::make_shared<vsm::Logger>(),                       // logger
     };
 }
+
+std::string GazeboVsm::yamlString(const YAML::Node& node) const {
+    auto str = node.as<std::string>();
+    return str.front() == '$' ? std::getenv(str.c_str() + 1) : str;
+};
 
 GZ_REGISTER_SYSTEM_PLUGIN(GazeboVsm)
 

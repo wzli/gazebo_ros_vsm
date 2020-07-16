@@ -43,10 +43,10 @@ ENV ROS_SHARE=/opt/ros/melodic/share
 RUN apt update && apt install -y \
   ros-melodic-husky-simulator \
   ros-melodic-husky-navigation \
+  libyaml-cpp-dev \
   && rm -rf /var/lib/apt/lists/* \
   && cp -rn ${ROS_SHARE}/husky_description/meshes/* ${GZWEB_ASSETS}/husky/meshes \
   && find ${ROS_SHARE}/husky_description -name "*.urdf*" -exec sed -i 's/package:\/\/husky_description/model:\/\/husky/g' {} +
-
 
 # build catkin packages
 ENV CATKIN_WS=/opt/catkin_ws

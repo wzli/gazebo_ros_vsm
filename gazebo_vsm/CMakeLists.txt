@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(gazebo_vsm)
 
+cmake_policy(SET CMP0054 OLD)
+
 set(PKG_DEPS
-  roscpp
-  gazebo_ros
 )
 
 find_package(catkin REQUIRED COMPONENTS
@@ -19,6 +19,7 @@ catkin_package(
   INCLUDE_DIRS
     include
   LIBRARIES
+    ${PROJECT_NAME}
   CATKIN_DEPENDS
     ${PKG_DEPS}
 )
@@ -33,21 +34,13 @@ include_directories(
   ${GAZEBO_INCLUDE_DIRS}
 )
 
-add_library(vsm_world_plugin src/vsm_world_plugin.cpp)
-target_link_libraries(vsm_world_plugin ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
+add_library(${PROJECT_NAME} src/gazebo_vsm.cpp)
+target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES})
 
 #############
 ## Install ##
 #############
 
-install(TARGETS vsm_world_plugin
+install(TARGETS ${PROJECT_NAME}
   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-)
-
-install(DIRECTORY launch/
-  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch
-)
-
-install(DIRECTORY world/
-  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/world
 )

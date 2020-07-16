@@ -50,6 +50,7 @@ RUN apt update && apt install -y \
 # build catkin packages
 ENV CATKIN_WS=/opt/catkin_ws
 WORKDIR ${CATKIN_WS}
+COPY gazebo_vsm src/gazebo_vsm
 COPY gazebo_vsm_demo src/gazebo_vsm_demo
 RUN . /opt/ros/melodic/setup.sh && catkin init && catkin build -DCMAKE_BUILD_TYPE=Release --force-color
 

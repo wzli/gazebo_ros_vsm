@@ -7,14 +7,16 @@
 
 typedef actionlib::SimpleActionClient<move_base_msgs::MoveBaseAction> MoveBaseClient;
 
-int main(int argc, char** argv){
+int main(int argc, char** argv) {
     ros::init(argc, argv, "random_walk");
     ros::NodeHandle nh;
     MoveBaseClient ac("move_base", true);
     move_base_msgs::MoveBaseGoal goal;
 
-    ros::ServiceClient clear_costmap = nh.serviceClient<std_srvs::Empty>("move_base/clear_costmaps");
-    ros::ServiceClient clear_unknown_space = nh.serviceClient<std_srvs::Empty>("move_base/clear_unknown_space");
+    ros::ServiceClient clear_costmap =
+            nh.serviceClient<std_srvs::Empty>("move_base/clear_costmaps");
+    ros::ServiceClient clear_unknown_space =
+            nh.serviceClient<std_srvs::Empty>("move_base/clear_unknown_space");
 
     std::random_device random_device;
     std::mt19937 random_generator(random_device());
@@ -32,11 +34,11 @@ int main(int argc, char** argv){
     std::uniform_real_distribution<double> y_dist(min_y, max_y);
     std::uniform_real_distribution<double> w_dist(-1, 1);
 
-    while(!ac.waitForServer(ros::Duration(5.0))){
+    while (!ac.waitForServer(ros::Duration(5.0))) {
         ROS_INFO("Waiting for the move_base action server to come up");
     }
 
-    while(ros::ok()) {
+    while (ros::ok()) {
         goal.target_pose.header.stamp = ros::Time::now();
         goal.target_pose.pose.position.x = x_dist(random_generator);
         goal.target_pose.pose.position.y = y_dist(random_generator);
@@ -44,11 +46,11 @@ int main(int argc, char** argv){
         goal.target_pose.pose.orientation.z = std::sqrt(1 - (w * w));
         goal.target_pose.pose.orientation.w = w;
         ROS_WARN("Sending goal to %f %f", goal.target_pose.pose.position.x,
-            goal.target_pose.pose.position.y);
+                goal.target_pose.pose.position.y);
         ac.sendGoal(goal);
         ac.waitForResult();
         ROS_WARN("Goal result %s", ac.getState().getText().c_str());
-        if(ac.getState() != actionlib::SimpleClientGoalState::SUCCEEDED) {
+        if (ac.getState() != actionlib::SimpleClientGoalState::SUCCEEDED) {
             ROS_WARN("Clear Costmaps");
             std_srvs::Empty empty;
             clear_costmap.call(empty);

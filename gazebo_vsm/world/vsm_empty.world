@@ -1,9 +1,0 @@
-<?xml version="1.0" ?>
-<sdf version="1.4">
-  <world name="default">
-    <include>
-      <uri>model://ground_plane</uri>
-    </include>
-    <plugin name="gazebo_vsm" filename="libvsm_world_plugin.so"/>
-  </world>
-</sdf>

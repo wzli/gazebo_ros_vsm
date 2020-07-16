@@ -15,6 +15,7 @@
   <depend>std_srvs</depend>
   <depend>move_base_msgs</depend>
 
+  <exec_depend>gazebo_vsm</exec_depend>
   <exec_depend>husky_gazebo</exec_depend>
   <exec_depend>husky_navigation</exec_depend>
 </package>

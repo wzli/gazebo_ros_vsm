@@ -11,6 +11,9 @@ services:
       - SPAWN_X=0
       - SPAWN_Y=0
       - SPAWN_YAW=0
+      - MESH_NAME=test_name
+      - MESH_ADDRESS=localhost
+      - MESH_PORT=11511
     build:
       dockerfile: docker/Dockerfile
       context: ..

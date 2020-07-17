@@ -51,14 +51,6 @@ RUN apt update && apt install -y \
 # build catkin packages
 ENV CATKIN_WS=/opt/catkin_ws
 WORKDIR ${CATKIN_WS}
-
-# build vsm
-COPY gazebo_vsm/VirtualSpaceMeshnet src/gazebo_vsm/VirtualSpaceMeshnet
-COPY gazebo_vsm/package.xml src/gazebo_vsm/package.xml
-COPY docker/VsmCMakeLists.txt src/gazebo_vsm/CMakeLists.txt
-RUN . /opt/ros/melodic/setup.sh && catkin init && catkin build -DCMAKE_BUILD_TYPE=Release --force-color
-
-# build catkin packages
 COPY gazebo_vsm src/gazebo_vsm
 COPY gazebo_vsm_demo src/gazebo_vsm_demo
 RUN . /opt/ros/melodic/setup.sh && catkin init && catkin build -DCMAKE_BUILD_TYPE=Release --force-color

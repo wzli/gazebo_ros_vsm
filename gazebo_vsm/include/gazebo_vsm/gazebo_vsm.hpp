@@ -11,15 +11,15 @@ namespace gazebo {
 class GazeboVsm : public SystemPlugin {
 public:
     GazeboVsm() {}
-    void Load(int /*_argc*/, char** /*_argv*/);
+    void Load(int argc, char** argv);
 
     void onWorldCreated(std::string world_name);
 
 private:
+    YAML::Node yamlRequired(YAML::Node& node, std::string field) const;
     std::string yamlString(const YAML::Node& node) const;
 
     gazebo::physics::WorldPtr _world;
-
     gazebo::event::ConnectionPtr _world_created_event;
 
     YAML::Node _yaml;

@@ -29,42 +29,50 @@ void GazeboVsm::Load(int argc, char** argv) {
 
     // create logger and register log handler
     _logger = std::make_shared<vsm::Logger>();
-    _logger->addLogHandler(static_cast<vsm::Logger::Level>(
-                                   std::stoi(yamlString(yamlRequired(_yaml, "verbosity")))),
+    _logger->addLogHandler(
+            static_cast<vsm::Logger::Level>(std::stoi(yamlField(_yaml, "verbosity"))),
             [](vsm::msecs time, vsm::Logger::Level level, vsm::Error error, const void* /*data*/,
                     size_t /*len*/) {
-                std::cout << "VSM plugin: " << time.count() << " lv: " << level
-                          << ", type: " << error.type << ", code: " << error.code
-                          << ", msg: " << error.what() << std::endl;
+                std::cout << "VSM plugin: t " << time.count() << ", lv " << level << ", type "
+                          << error.type << ", code " << error.code << ", msg " << error.what()
+                          << std::endl;
             });
     // create mesh node
     initMeshNode();
 }
 
 void GazeboVsm::initMeshNode() {
-    vsm::MeshNode::Config mesh_config{
-            vsm::msecs(std::stoul(yamlString(yamlRequired(_yaml, "peer_update_interval")))),
-            vsm::msecs(std::stoul(yamlString(yamlRequired(_yaml, "entity_expiry_interval")))),
-            std::stoul(yamlString(yamlRequired(_yaml, "entity_updates_size"))),
+    _mesh_node = std::make_unique<vsm::MeshNode>(vsm::MeshNode::Config{
+            vsm::msecs(std::stoul(yamlField(_yaml, "peer_update_interval"))),
+            vsm::msecs(std::stoul(yamlField(_yaml, "entity_expiry_interval"))),
+            std::stoul(yamlField(_yaml, "entity_updates_size")),
             // ego sphere
             {
                     nullptr,  // entity_update_handler
-                    std::stoul(yamlString(yamlRequired(_yaml, "timestamp_lookup_size"))),
+                    std::stoul(yamlField(_yaml, "timestamp_lookup_size")),
             },
             // peer tracker
             {
-                    yamlString(_yaml["name"]),
-                    "udp://" + yamlString(yamlRequired(_yaml, "address")) + ":" +
-                            yamlString(yamlRequired(_yaml, "port")),
-                    yamlRequired(_yaml, "initial_coordinates").as<std::vector<float>>(),
-                    std::stof(yamlString(yamlRequired(_yaml, "power_radius"))),
-                    std::stoul(yamlString(yamlRequired(_yaml, "connection_degree"))),
-                    std::stoul(yamlString(yamlRequired(_yaml, "peer_lookup_size"))),
-                    std::stof(yamlString(yamlRequired(_yaml, "peer_rank_decay"))),
+                    yamlField(_yaml, "name", false),
+                    "udp://" + yamlField(_yaml, "address") + ":" + yamlField(_yaml, "port"),
+                    _yaml["initial_coordinates"]
+                            ? _yaml["initial_coordinates"].as<std::vector<float>>()
+                            : std::vector<float>(3),
+                    std::stof(yamlField(_yaml, "power_radius")),
+                    std::stoul(yamlField(_yaml, "connection_degree")),
+                    std::stoul(yamlField(_yaml, "peer_lookup_size")),
+                    std::stof(yamlField(_yaml, "peer_rank_decay")),
             },
-            std::make_shared<vsm::ZmqTransport>("udp://*:" + yamlString(_yaml["port"])), _logger,
+            std::make_shared<vsm::ZmqTransport>("udp://*:" + yamlField(_yaml, "port")), _logger,
             // std::function<msecs(void)> local_clock
-    };
+    });
+    // spawn worker thread to drive the vsm mesh node
+    std::thread mesh_thread([this]() {
+        for (;;) {
+            _mesh_node->getTransport().poll(vsm::msecs(-1));
+        }
+    });
+    mesh_thread.detach();
 }
 
 void GazeboVsm::onWorldCreated(std::string world_name) {
@@ -79,21 +87,23 @@ void GazeboVsm::onWorldCreated(std::string world_name) {
     _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(WORLD_CREATED)));
 }
 
-YAML::Node GazeboVsm::yamlRequired(YAML::Node& node, std::string field) const {
-    auto value = node[field];
-    if (!value) {
-        throw std::runtime_error("VSM plugin: missig required config " + field);
-    }
-    return value;
-}
-
-std::string GazeboVsm::yamlString(const YAML::Node& node) const {
+std::string GazeboVsm::yamlField(YAML::Node node, std::string field, bool required) const {
     if (!node) {
+        throw std::runtime_error("VSM plugin: yaml node is null.");
+    }
+    auto scalar = node[field];
+    if (!scalar || scalar.Scalar().empty()) {
+        if (required) {
+            throw std::runtime_error("VSM plugin: missig required config " + field);
+        }
         return std::string();
     }
-    auto str = node.as<std::string>();
+    auto str = scalar.as<std::string>();
     if (str.front() == '$') {
         const char* env = std::getenv(str.c_str() + 1);
+        if (required && (!env || !*env)) {
+            throw std::runtime_error("VSM plugin: missig required enviornment variable " + str);
+        }
         str = env ? env : "";
     }
     return str;

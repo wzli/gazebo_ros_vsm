@@ -23,8 +23,7 @@ public:
 private:
     void initMeshNode();
 
-    YAML::Node yamlRequired(YAML::Node& node, std::string field) const;
-    std::string yamlString(const YAML::Node& node) const;
+    std::string yamlField(YAML::Node node, std::string field, bool required = true) const;
 
     gazebo::physics::WorldPtr _world;
     gazebo::event::ConnectionPtr _world_created_event;

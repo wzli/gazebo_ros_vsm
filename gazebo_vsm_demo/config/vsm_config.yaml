@@ -2,13 +2,13 @@
 # Virtual Space Meshnet Config
 
 # Display name of this node.
-name: $MESH_NAME
+name: $VSM_NAME
 
 # Publicly reachable network hostname or address.
-address: $MESH_ADDRESS
+address: $VSM_ADDRESS
 
 # UDP port of the mesh network.
-port: $MESH_PORT
+port: $VSM_PORT
 
 # (meters)
 # Default center of simulation.
@@ -53,10 +53,10 @@ entity_updates_size: 7000
 # 3 - Warn
 # 4 - Error
 # 5 - Fatal
-verbosity: 3
+verbosity: $VSM_VERBOSITY
 
 # Name of entity to center simulation around.
-tracked_entity: $MESH_NAME
+tracked_entity: $VSM_NAME
 
 synced_entities:
   - a:

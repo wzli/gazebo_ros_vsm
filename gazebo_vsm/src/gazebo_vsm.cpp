@@ -26,20 +26,25 @@ void GazeboVsm::Load(int argc, char** argv) {
     // register world creation callback
     _world_created_event = gazebo::event::Events::ConnectWorldCreated(
             [this](std::string world_name) { onWorldCreated(std::move(world_name)); });
+
+    // create logger and register log handler
+    _logger = std::make_shared<vsm::Logger>();
+    _logger->addLogHandler(static_cast<vsm::Logger::Level>(
+                                   std::stoi(yamlString(yamlRequired(_yaml, "verbosity")))),
+            [](vsm::msecs time, vsm::Logger::Level level, vsm::Error error, const void* /*data*/,
+                    size_t /*len*/) {
+                std::cout << "VSM plugin: " << time.count() << " lv: " << level
+                          << ", type: " << error.type << ", code: " << error.code
+                          << ", msg: " << error.what() << std::endl;
+            });
+    // create mesh node
+    initMeshNode();
 }
 
-void GazeboVsm::onWorldCreated(std::string world_name) {
-    if (_world) {
-        throw std::runtime_error("VSM plugin: multiple worlds not supported.");
-    }
-    _world = gazebo::physics::get_world(world_name);
-    if (!_world) {
-        throw std::runtime_error(
-                "VSM plugin: physics::get_world() fail to return world " + world_name);
-    }
+void GazeboVsm::initMeshNode() {
     vsm::MeshNode::Config mesh_config{
-            vsm::msecs(std::stoi(yamlString(yamlRequired(_yaml, "peer_update_interval")))),
-            vsm::msecs(std::stoi(yamlString(yamlRequired(_yaml, "entity_expiry_interval")))),
+            vsm::msecs(std::stoul(yamlString(yamlRequired(_yaml, "peer_update_interval")))),
+            vsm::msecs(std::stoul(yamlString(yamlRequired(_yaml, "entity_expiry_interval")))),
             std::stoul(yamlString(yamlRequired(_yaml, "entity_updates_size"))),
             // ego sphere
             {
@@ -57,10 +62,21 @@ void GazeboVsm::onWorldCreated(std::string world_name) {
                     std::stoul(yamlString(yamlRequired(_yaml, "peer_lookup_size"))),
                     std::stof(yamlString(yamlRequired(_yaml, "peer_rank_decay"))),
             },
-            std::make_shared<vsm::ZmqTransport>("udp://*:" + yamlString(_yaml["port"])),
-            std::make_shared<vsm::Logger>(),  // logger
-                                              // std::function<msecs(void)> local_clock = []() {
+            std::make_shared<vsm::ZmqTransport>("udp://*:" + yamlString(_yaml["port"])), _logger,
+            // std::function<msecs(void)> local_clock
     };
+}
+
+void GazeboVsm::onWorldCreated(std::string world_name) {
+    if (_world) {
+        throw std::runtime_error("VSM plugin: multiple worlds not supported.");
+    }
+    _world = gazebo::physics::get_world(world_name);
+    if (!_world) {
+        throw std::runtime_error(
+                "VSM plugin: physics::get_world() fail to return world " + world_name);
+    }
+    _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(WORLD_CREATED)));
 }
 
 YAML::Node GazeboVsm::yamlRequired(YAML::Node& node, std::string field) const {
@@ -69,7 +85,7 @@ YAML::Node GazeboVsm::yamlRequired(YAML::Node& node, std::string field) const {
         throw std::runtime_error("VSM plugin: missig required config " + field);
     }
     return value;
-};
+}
 
 std::string GazeboVsm::yamlString(const YAML::Node& node) const {
     if (!node) {
@@ -81,7 +97,7 @@ std::string GazeboVsm::yamlString(const YAML::Node& node) const {
         str = env ? env : "";
     }
     return str;
-};
+}
 
 GZ_REGISTER_SYSTEM_PLUGIN(GazeboVsm)
 

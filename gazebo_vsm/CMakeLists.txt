@@ -26,6 +26,7 @@ catkin_package(
 ###########
 ## Build ##
 ###########
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Wshadow")
 
 include_directories(
   include

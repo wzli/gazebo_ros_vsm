@@ -69,7 +69,7 @@ void GazeboVsm::initMeshNode() {
     // spawn worker thread to drive the vsm mesh node
     std::thread mesh_thread([this]() {
         for (;;) {
-            _mesh_node->getTransport().poll(vsm::msecs(-1));
+            //_mesh_node->getTransport().poll(vsm::msecs(-1));
         }
     });
     mesh_thread.detach();

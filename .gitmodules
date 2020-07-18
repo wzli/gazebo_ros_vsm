@@ -1,3 +1,0 @@
-[submodule "gazebo_vsm/VirtualSpaceMeshnet"]
-	path = gazebo_vsm/VirtualSpaceMeshnet
-	url = https://github.com/wzli/VirtualSpaceMeshnet.git

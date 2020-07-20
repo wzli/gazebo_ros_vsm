@@ -28,6 +28,9 @@ private:
     gazebo::physics::WorldPtr _world;
     gazebo::event::ConnectionPtr _world_created_event;
 
+    gazebo::event::ConnectionPtr _add_entity_event;
+    gazebo::event::ConnectionPtr _delete_entity_event;
+
     YAML::Node _yaml;
     std::unique_ptr<vsm::MeshNode> _mesh_node;
     std::shared_ptr<vsm::Logger> _logger;

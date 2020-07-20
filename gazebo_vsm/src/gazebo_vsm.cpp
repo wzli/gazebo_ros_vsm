@@ -27,6 +27,12 @@ void GazeboVsm::Load(int argc, char** argv) {
     _world_created_event = gazebo::event::Events::ConnectWorldCreated(
             [this](std::string world_name) { onWorldCreated(std::move(world_name)); });
 
+    _add_entity_event = gazebo::event::Events::ConnectAddEntity(
+            [this](std::string entity_name) { std::cout << "add entity " << entity_name << std::endl; } );
+
+    _delete_entity_event = gazebo::event::Events::ConnectDeleteEntity(
+            [this](std::string entity_name) { std::cout << "delete entity " << entity_name << std::endl; } );
+
     // create logger and register log handler
     _logger = std::make_shared<vsm::Logger>();
     _logger->addLogHandler(
@@ -85,6 +91,17 @@ void GazeboVsm::onWorldCreated(std::string world_name) {
                 "VSM plugin: physics::get_world() fail to return world " + world_name);
     }
     _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(WORLD_CREATED)));
+
+    auto models = _world->Models();
+
+    for(auto model : models) {
+        auto sdf = model->GetSDF();
+        std::cout << sdf->ToString("/") << std::endl;
+        gazebo::msgs::Model msg;
+        model->FillMsg(msg);
+        std::cout << msg.DebugString() << std::endl;
+    }
+
 }
 
 std::string GazeboVsm::yamlField(YAML::Node node, std::string field, bool required) const {

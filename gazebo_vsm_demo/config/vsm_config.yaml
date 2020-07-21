@@ -58,14 +58,24 @@ verbosity: $VSM_VERBOSITY
 # Name of entity to center simulation around.
 tracked_entity: $VSM_NAME
 
+# List of entity name patterns to synchronize.
+# Synced entity is associated with the first name pattern matched.
 synced_entities:
-  - a:
-      filter: 0
-      hop_limit: 0
-      range: 0
-      expiry: 0
-  - b:
-      filter: 0
-      hop_limit: 0
-      range: 0
-      expiry: 0
+
+  - name_pattern: "Construction.*"
+    filter: 0
+    hop_limit: 0
+    range: 0
+    expiry: 0
+
+  - name_pattern: jersey_barrier_12
+    filter: 0
+    hop_limit: 0
+    range: 0
+    expiry: 0
+
+  - name_pattern: a
+    filter: 0
+    hop_limit: 0
+    range: 0
+    expiry: 0

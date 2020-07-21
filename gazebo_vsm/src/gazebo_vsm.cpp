@@ -3,6 +3,7 @@
 
 #include <cstdlib>
 #include <exception>
+#include <regex>
 #include <iostream>
 
 namespace gazebo {
@@ -23,24 +24,30 @@ void GazeboVsm::Load(int argc, char** argv) {
                 "VSM plugin: failed to parse param --vsm-config=[vsm_config.yaml]");
     }
     _yaml = YAML::LoadFile(yaml_path + 13);
-    // register world creation callback
+    // assert synced_entities are defined
+    auto synced_entities = _yaml["synced_entities"];
+    if (!synced_entities.IsDefined() || synced_entities.IsNull() || !synced_entities.IsSequence()) {
+        throw std::runtime_error("VSM plugin: missing required config synced_entities: []");
+    }
+    // register gazebo callbacks
     _world_created_event = gazebo::event::Events::ConnectWorldCreated(
             [this](std::string world_name) { onWorldCreated(std::move(world_name)); });
 
     _add_entity_event = gazebo::event::Events::ConnectAddEntity(
-            [this](std::string entity_name) { std::cout << "add entity " << entity_name << std::endl; } );
+            [this](std::string entity_name) { onAddEntity(std::move(entity_name)); });
 
     _delete_entity_event = gazebo::event::Events::ConnectDeleteEntity(
-            [this](std::string entity_name) { std::cout << "delete entity " << entity_name << std::endl; } );
+            [this](std::string entity_name) { onDeleteEntity(std::move(entity_name)); });
 
     // create logger and register log handler
     _logger = std::make_shared<vsm::Logger>();
     _logger->addLogHandler(
             static_cast<vsm::Logger::Level>(std::stoi(yamlField(_yaml, "verbosity"))),
-            [](vsm::msecs time, vsm::Logger::Level level, vsm::Error error, const void* /*data*/,
+            [](vsm::msecs time, vsm::Logger::Level level, vsm::Error error, const void* data,
                     size_t /*len*/) {
                 std::cout << "VSM plugin: t " << time.count() << ", lv " << level << ", type "
                           << error.type << ", code " << error.code << ", msg " << error.what()
+                          << " " << (error.type == SYNCED_ENTITY_ADDED ? (const char*) data : "")
                           << std::endl;
             });
     // create mesh node
@@ -75,10 +82,26 @@ void GazeboVsm::initMeshNode() {
     // spawn worker thread to drive the vsm mesh node
     std::thread mesh_thread([this]() {
         for (;;) {
-            //_mesh_node->getTransport().poll(vsm::msecs(-1));
+            _mesh_node->getTransport().poll(vsm::msecs(-1));
         }
     });
     mesh_thread.detach();
+}
+
+void GazeboVsm::onAddEntity(std::string entity_name) {
+    // add entity to synced_entities if name pattern is matched
+    for (const auto& synced_entity : _yaml["synced_entities"]) {
+        if (std::regex_match(entity_name, std::regex(yamlField(synced_entity, "name_pattern")))) {
+            _synced_entities[entity_name] = {synced_entity};
+            _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(SYNCED_ENTITY_ADDED)),
+                    entity_name.c_str());
+            break;
+        }
+    }
+}
+
+void GazeboVsm::onDeleteEntity(std::string entity_name) {
+    _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(SYNCED_ENTITY_DELETED)), entity_name.c_str());
 }
 
 void GazeboVsm::onWorldCreated(std::string world_name) {
@@ -94,14 +117,12 @@ void GazeboVsm::onWorldCreated(std::string world_name) {
 
     auto models = _world->Models();
 
-    for(auto model : models) {
-        auto sdf = model->GetSDF();
-        std::cout << sdf->ToString("/") << std::endl;
+    for (auto model : models) {
         gazebo::msgs::Model msg;
         model->FillMsg(msg);
-        std::cout << msg.DebugString() << std::endl;
+        // std::cout << msg.DebugString() << std::endl;
+        std::cout << msg.name() << std::endl;
     }
-
 }
 
 std::string GazeboVsm::yamlField(YAML::Node node, std::string field, bool required) const {

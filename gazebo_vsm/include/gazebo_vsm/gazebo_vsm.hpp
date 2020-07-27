@@ -29,6 +29,7 @@ public:
 private:
     struct SyncedEntity {
         physics::ModelPtr model;
+        vsm::EntityT msg;
         YAML::Node yaml;
     };
 

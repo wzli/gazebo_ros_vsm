@@ -122,14 +122,39 @@ void GazeboVsm::onWorldCreated(std::string world_name) {
 
 void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo& update_info) {}
 
-void GazeboVsm::onWorldUpdateEnd() {}
+void GazeboVsm::onWorldUpdateEnd() {
+    // convert synced entities list to message and broadcast
+    std::vector<vsm::EntityT> entity_msgs;
+    entity_msgs.reserve(_synced_entities.size());
+    for (const auto& synced_entity : _synced_entities) {
+        if (!synced_entity.second.model) {
+            continue;
+        }
+        entity_msgs.emplace_back(synced_entity.second.msg);
+        const auto& pos = synced_entity.second.model->WorldPose().Pos();
+        entity_msgs.back().coordinates = {static_cast<float>(pos.X()), static_cast<float>(pos.Y()),
+                static_cast<float>(pos.Z())};
+        gazebo::msgs::Model protobuf_msg;
+        synced_entity.second.model->FillMsg(protobuf_msg);
+        std::vector<uint8_t> buffer(protobuf_msg.ByteSize());
+        protobuf_msg.SerializeToArray(buffer.data(), buffer.size());
+        entity_msgs.back().data = std::move(buffer);
+    }
+}
 
 void GazeboVsm::onAddEntity(std::string entity_name) {
     // add entity to synced_entities if name pattern is matched
     for (const auto& synced_entity : _yaml["synced_entities"]) {
         if (std::regex_match(entity_name, std::regex(yamlField(synced_entity, "name_pattern")))) {
-            _synced_entities[entity_name] = {
-                    _world ? _world->ModelByName(entity_name) : nullptr, synced_entity};
+            vsm::EntityT entity_msg;
+            entity_msg.name = entity_name;
+            entity_msg.filter =
+                    static_cast<vsm::Filter>(std::stoi(yamlField(synced_entity, "filter")));
+            entity_msg.hop_limit = std::stoul(yamlField(synced_entity, "hop_limit"));
+            entity_msg.range = std::stof(yamlField(synced_entity, "range"));
+            entity_msg.expiry = std::stoul(yamlField(synced_entity, "expiry"));
+            _synced_entities[entity_name] = {_world ? _world->ModelByName(entity_name) : nullptr,
+                    std::move(entity_msg), synced_entity};
             _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(SYNCED_ENTITY_ADDED)),
                     entity_name.c_str());
             break;

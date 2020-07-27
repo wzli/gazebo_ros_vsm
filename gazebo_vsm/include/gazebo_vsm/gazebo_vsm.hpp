@@ -18,15 +18,17 @@ public:
         SYNCED_ENTITY_DELETED,
     };
 
-    GazeboVsm() {}
     void Load(int argc, char** argv);
 
     void onWorldCreated(std::string world_name);
+    void onWorldUpdateBegin(const common::UpdateInfo& update_info);
+    void onWorldUpdateEnd();
     void onAddEntity(std::string entity_name);
     void onDeleteEntity(std::string entity_name);
 
 private:
     struct SyncedEntity {
+        physics::ModelPtr model;
         YAML::Node yaml;
     };
 
@@ -34,11 +36,13 @@ private:
 
     std::string yamlField(YAML::Node node, std::string field, bool required = true) const;
 
-    gazebo::physics::WorldPtr _world;
+    physics::WorldPtr _world;
 
-    gazebo::event::ConnectionPtr _world_created_event;
-    gazebo::event::ConnectionPtr _add_entity_event;
-    gazebo::event::ConnectionPtr _delete_entity_event;
+    event::ConnectionPtr _world_created_event;
+    event::ConnectionPtr _world_update_begin_event;
+    event::ConnectionPtr _world_update_end_event;
+    event::ConnectionPtr _add_entity_event;
+    event::ConnectionPtr _delete_entity_event;
 
     YAML::Node _yaml;
     std::unique_ptr<vsm::MeshNode> _mesh_node;

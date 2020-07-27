@@ -33,6 +33,12 @@ void GazeboVsm::Load(int argc, char** argv) {
     _world_created_event = gazebo::event::Events::ConnectWorldCreated(
             [this](std::string world_name) { onWorldCreated(std::move(world_name)); });
 
+    _world_update_begin_event = gazebo::event::Events::ConnectWorldUpdateBegin(
+            [this](const common::UpdateInfo& update_info) { onWorldUpdateBegin(update_info); });
+
+    _world_update_end_event =
+            gazebo::event::Events::ConnectWorldUpdateEnd([this]() { onWorldUpdateEnd(); });
+
     _add_entity_event = gazebo::event::Events::ConnectAddEntity(
             [this](std::string entity_name) { onAddEntity(std::move(entity_name)); });
 
@@ -88,22 +94,6 @@ void GazeboVsm::initMeshNode() {
     mesh_thread.detach();
 }
 
-void GazeboVsm::onAddEntity(std::string entity_name) {
-    // add entity to synced_entities if name pattern is matched
-    for (const auto& synced_entity : _yaml["synced_entities"]) {
-        if (std::regex_match(entity_name, std::regex(yamlField(synced_entity, "name_pattern")))) {
-            _synced_entities[entity_name] = {synced_entity};
-            _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(SYNCED_ENTITY_ADDED)),
-                    entity_name.c_str());
-            break;
-        }
-    }
-}
-
-void GazeboVsm::onDeleteEntity(std::string entity_name) {
-    _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(SYNCED_ENTITY_DELETED)), entity_name.c_str());
-}
-
 void GazeboVsm::onWorldCreated(std::string world_name) {
     if (_world) {
         throw std::runtime_error("VSM plugin: multiple worlds not supported.");
@@ -113,16 +103,42 @@ void GazeboVsm::onWorldCreated(std::string world_name) {
         throw std::runtime_error(
                 "VSM plugin: physics::get_world() fail to return world " + world_name);
     }
+    // update model pointers for synced entities in world
+    for (auto& synced_entity : _synced_entities) {
+        if (!synced_entity.second.model) {
+            synced_entity.second.model = _world->ModelByName(synced_entity.first);
+        }
+    }
     _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(WORLD_CREATED)));
 
     auto models = _world->Models();
-
     for (auto model : models) {
         gazebo::msgs::Model msg;
         model->FillMsg(msg);
         // std::cout << msg.DebugString() << std::endl;
         std::cout << msg.name() << std::endl;
     }
+}
+
+void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo& update_info) {}
+
+void GazeboVsm::onWorldUpdateEnd() {}
+
+void GazeboVsm::onAddEntity(std::string entity_name) {
+    // add entity to synced_entities if name pattern is matched
+    for (const auto& synced_entity : _yaml["synced_entities"]) {
+        if (std::regex_match(entity_name, std::regex(yamlField(synced_entity, "name_pattern")))) {
+            _synced_entities[entity_name] = {
+                    _world ? _world->ModelByName(entity_name) : nullptr, synced_entity};
+            _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(SYNCED_ENTITY_ADDED)),
+                    entity_name.c_str());
+            break;
+        }
+    }
+}
+
+void GazeboVsm::onDeleteEntity(std::string entity_name) {
+    _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(SYNCED_ENTITY_DELETED)), entity_name.c_str());
 }
 
 std::string GazeboVsm::yamlField(YAML::Node node, std::string field, bool required) const {

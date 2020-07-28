@@ -118,7 +118,26 @@ void GazeboVsm::onWorldCreated(std::string world_name) {
     }
 }
 
-void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo& update_info) {}
+void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo& update_info) {
+    const auto vsm_entities_callback = [&](const vsm::EgoSphere::EntityLookup& vsm_entities) {
+        for (const auto& vsm_entity : vsm_entities) {
+            auto synced_entity = _synced_entities.find(vsm_entity.first);
+            if (synced_entity == _synced_entities.end()) {
+                // entity doesn't exist yet, create it
+            }
+            if (!synced_entity->second.model) {
+                // entity was deleted, skip
+                continue;
+            }
+            // parse message and update model
+            gazebo::msgs::Model protobuf_msg;
+            const auto& data = synced_entity->second.msg.data;
+            protobuf_msg.ParseFromArray(data.data(), data.size());
+            synced_entity->second.model->ProcessMsg(protobuf_msg);
+        }
+    };
+    _mesh_node->readEntities(vsm_entities_callback);
+}
 
 void GazeboVsm::onWorldUpdateEnd() {
     // convert synced entities list to message and broadcast
@@ -127,12 +146,13 @@ void GazeboVsm::onWorldUpdateEnd() {
     for (auto synced_entity = _synced_entities.begin(); synced_entity != _synced_entities.end();) {
         entity_msgs.emplace_back(synced_entity->second.msg);
         if (synced_entity->second.model) {
-            entity_msgs.back().coordinates = getModelCoords(*synced_entity->second.model);
+            // serialize entity message
             gazebo::msgs::Model protobuf_msg;
             synced_entity->second.model->FillMsg(protobuf_msg);
             std::vector<uint8_t> buffer(protobuf_msg.ByteSize());
             protobuf_msg.SerializeToArray(buffer.data(), buffer.size());
             entity_msgs.back().data = std::move(buffer);
+            entity_msgs.back().coordinates = getModelCoords(*synced_entity->second.model);
             ++synced_entity;
         } else {
             // delete entities that are zeroed out (but include expiry message in broadcast)

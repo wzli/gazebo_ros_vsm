@@ -14,7 +14,7 @@ services:
       - VSM_NAME=test_name
       - VSM_ADDRESS=localhost
       - VSM_PORT=11511
-      - VSM_VERBOSITY=1
+      - VSM_VERBOSITY=2
     build:
       dockerfile: docker/Dockerfile
       context: ..

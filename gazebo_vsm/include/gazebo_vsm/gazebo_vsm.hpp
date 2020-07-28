@@ -35,6 +35,8 @@ private:
 
     void initMeshNode();
 
+    static std::vector<float> getModelCoords(const physics::Model& model);
+
     std::string yamlField(YAML::Node node, std::string field, bool required = true) const;
 
     physics::WorldPtr _world;

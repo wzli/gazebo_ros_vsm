@@ -105,9 +105,7 @@ void GazeboVsm::onWorldCreated(std::string world_name) {
     }
     // update model pointers for synced entities in world
     for (auto& synced_entity : _synced_entities) {
-        if (!synced_entity.second.model) {
-            synced_entity.second.model = _world->ModelByName(synced_entity.first);
-        }
+        synced_entity.second.model = _world->ModelByName(synced_entity.first);
     }
     _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(WORLD_CREATED)));
 
@@ -126,20 +124,22 @@ void GazeboVsm::onWorldUpdateEnd() {
     // convert synced entities list to message and broadcast
     std::vector<vsm::EntityT> entity_msgs;
     entity_msgs.reserve(_synced_entities.size());
-    for (const auto& synced_entity : _synced_entities) {
-        if (!synced_entity.second.model) {
-            continue;
+    for (auto synced_entity = _synced_entities.begin(); synced_entity != _synced_entities.end();) {
+        entity_msgs.emplace_back(synced_entity->second.msg);
+        if (synced_entity->second.model) {
+            entity_msgs.back().coordinates = getModelCoords(*synced_entity->second.model);
+            gazebo::msgs::Model protobuf_msg;
+            synced_entity->second.model->FillMsg(protobuf_msg);
+            std::vector<uint8_t> buffer(protobuf_msg.ByteSize());
+            protobuf_msg.SerializeToArray(buffer.data(), buffer.size());
+            entity_msgs.back().data = std::move(buffer);
+            ++synced_entity;
+        } else {
+            // delete entities that are zeroed out (but include expiry message in broadcast)
+            synced_entity = _synced_entities.erase(synced_entity);
         }
-        entity_msgs.emplace_back(synced_entity.second.msg);
-        const auto& pos = synced_entity.second.model->WorldPose().Pos();
-        entity_msgs.back().coordinates = {static_cast<float>(pos.X()), static_cast<float>(pos.Y()),
-                static_cast<float>(pos.Z())};
-        gazebo::msgs::Model protobuf_msg;
-        synced_entity.second.model->FillMsg(protobuf_msg);
-        std::vector<uint8_t> buffer(protobuf_msg.ByteSize());
-        protobuf_msg.SerializeToArray(buffer.data(), buffer.size());
-        entity_msgs.back().data = std::move(buffer);
     }
+    _mesh_node->updateEntities(entity_msgs, true);
 }
 
 void GazeboVsm::onAddEntity(std::string entity_name) {
@@ -163,7 +163,21 @@ void GazeboVsm::onAddEntity(std::string entity_name) {
 }
 
 void GazeboVsm::onDeleteEntity(std::string entity_name) {
+    auto synced_entity = _synced_entities.find(entity_name);
+    // only process synced entities
+    if (synced_entity == _synced_entities.end()) {
+        return;
+    }
+    // zero out entity fields
+    synced_entity->second.msg.coordinates = getModelCoords(*synced_entity->second.model);
+    synced_entity->second.msg.expiry = 0;
+    synced_entity->second.model = nullptr;
     _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(SYNCED_ENTITY_DELETED)), entity_name.c_str());
+}
+
+std::vector<float> GazeboVsm::getModelCoords(const physics::Model& model) {
+    const auto& pos = model.WorldPose().Pos();
+    return {static_cast<float>(pos.X()), static_cast<float>(pos.Y()), static_cast<float>(pos.Z())};
 }
 
 std::string GazeboVsm::yamlField(YAML::Node node, std::string field, bool required) const {

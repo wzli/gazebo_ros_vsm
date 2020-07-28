@@ -122,8 +122,13 @@ void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo& update_info) {
     const auto vsm_entities_callback = [&](const vsm::EgoSphere::EntityLookup& vsm_entities) {
         for (const auto& vsm_entity : vsm_entities) {
             auto synced_entity = _synced_entities.find(vsm_entity.first);
+            if (!vsm_entity.second.hops) {
+                // entity was self generated, skip sync update
+                continue;
+            }
             if (synced_entity == _synced_entities.end()) {
                 // entity doesn't exist yet, create it
+                continue;
             }
             if (!synced_entity->second.model) {
                 // entity was deleted, skip
@@ -131,7 +136,7 @@ void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo& update_info) {
             }
             // parse message and update model
             gazebo::msgs::Model protobuf_msg;
-            const auto& data = synced_entity->second.msg.data;
+            const auto& data = vsm_entity.second.entity.data;
             protobuf_msg.ParseFromArray(data.data(), data.size());
             synced_entity->second.model->ProcessMsg(protobuf_msg);
         }
@@ -149,9 +154,9 @@ void GazeboVsm::onWorldUpdateEnd() {
             // serialize entity message
             gazebo::msgs::Model protobuf_msg;
             synced_entity->second.model->FillMsg(protobuf_msg);
-            std::vector<uint8_t> buffer(protobuf_msg.ByteSize());
-            protobuf_msg.SerializeToArray(buffer.data(), buffer.size());
-            entity_msgs.back().data = std::move(buffer);
+            auto& data = entity_msgs.back().data;
+            data.resize(protobuf_msg.ByteSize());
+            protobuf_msg.SerializeToArray(data.data(), data.size());
             entity_msgs.back().coordinates = getModelCoords(*synced_entity->second.model);
             ++synced_entity;
         } else {

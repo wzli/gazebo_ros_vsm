@@ -18,6 +18,8 @@ public:
         SYNCED_ENTITY_ADDED,
         SYNCED_ENTITY_DELETED,
         MODEL_STATE_SDF_PARSE_FAIL,
+        TRACKED_ENTITY_FOUND,
+        BOOTSTRAP_PEER_ADDED,
     };
 
     void Load(int argc, char** argv);
@@ -38,10 +40,12 @@ private:
     void initMeshNode();
     bool parseModelState(physics::ModelState& model_state, const void* data, size_t len);
     static void parseSdf(const pugi::xml_node& node, sdf::ElementPtr sdf);
-    static std::vector<float> getModelCoords(const physics::Model& model);
+    static std::vector<float> getEntityCoords(const physics::Entity& model);
+    std::string envSubstitute(std::string str, bool required = true) const;
     std::string yamlField(YAML::Node node, std::string field, bool required = true) const;
 
     physics::WorldPtr _world;
+    physics::EntityPtr _tracked_entity;
     physics::ModelState _model_state;
     sdf::ElementPtr _model_state_sdf;
 

@@ -53,7 +53,11 @@ void GazeboVsm::Load(int argc, char** argv) {
                     size_t /*len*/) {
                 std::cout << "VSM plugin: t " << time.count() << ", lv " << level << ", type "
                           << error.type << ", code " << error.code << ", msg " << error.what()
-                          << " " << (error.type == SYNCED_ENTITY_ADDED ? (const char*) data : "")
+                          << " "
+                          << (error.type == SYNCED_ENTITY_ADDED ||
+                                                     error.type == BOOTSTRAP_PEER_ADDED
+                                             ? (const char*) data
+                                             : "")
                           << std::endl;
             });
     // create mesh node
@@ -85,6 +89,18 @@ void GazeboVsm::initMeshNode() {
             std::make_shared<vsm::ZmqTransport>("udp://*:" + yamlField(_yaml, "port")), _logger,
             // std::function<msecs(void)> local_clock
     });
+
+    // inject bootstrap peers
+    for (const auto& bootstrap_peer : _yaml["bootstrap_peers"]) {
+        auto peer_endpoint = envSubstitute(bootstrap_peer.as<std::string>(), false);
+        if (peer_endpoint.empty()) {
+            continue;
+        }
+        _mesh_node->getPeerTracker().latchPeer(("udp://" + peer_endpoint).c_str(), 1);
+        _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(BOOTSTRAP_PEER_ADDED)),
+                peer_endpoint.c_str(), peer_endpoint.size());
+    }
+
     // spawn worker thread to drive the vsm mesh node
     std::thread mesh_thread([this]() {
         for (;;) {
@@ -108,6 +124,11 @@ void GazeboVsm::onWorldCreated(std::string world_name) {
         synced_entity.second.model = _world->ModelByName(synced_entity.first);
     }
     _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(WORLD_CREATED)));
+    // find tracked entity if configured
+    _tracked_entity = _world->EntityByName(yamlField(_yaml, "tracked_entity", false));
+    if (_tracked_entity) {
+        _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(TRACKED_ENTITY_FOUND)));
+    }
 }
 
 void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo&) {
@@ -135,7 +156,7 @@ void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo&) {
             const auto& data = vsm_entity.second.entity.data;
             if (parseModelState(_model_state, data.data(), data.size())) {
                 synced_entity->second.model->SetState(_model_state);
-                // std::cout << "Parsed:\r\n" << _model_state_sdf->ToString("") << std::endl;
+                std::cout << "Parsed:\r\n" << _model_state_sdf->ToString("") << std::endl;
             }
         }
     };
@@ -143,6 +164,11 @@ void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo&) {
 }
 
 void GazeboVsm::onWorldUpdateEnd() {
+    // update mesh node pose based on tracked entity
+    if (_tracked_entity) {
+        _mesh_node->getPeerTracker().getNodeInfo().coordinates = getEntityCoords(*_tracked_entity);
+    }
+
     // convert synced entities list to message and broadcast
     std::vector<vsm::EntityT> entity_msgs;
     entity_msgs.reserve(_synced_entities.size());
@@ -155,7 +181,7 @@ void GazeboVsm::onWorldUpdateEnd() {
             model_state.FillSDF(_model_state_sdf);
             auto model_sdf_str = _model_state_sdf->ToString("");
             entity_msgs.back().data.assign(model_sdf_str.begin(), model_sdf_str.end());
-            entity_msgs.back().coordinates = getModelCoords(*synced_entity->second.model);
+            entity_msgs.back().coordinates = getEntityCoords(*synced_entity->second.model);
             ++synced_entity;
         } else {
             // delete entities that are zeroed out (but include expiry message in broadcast)
@@ -192,7 +218,7 @@ void GazeboVsm::onDeleteEntity(std::string entity_name) {
         return;
     }
     // zero out entity fields
-    synced_entity->second.msg.coordinates = getModelCoords(*synced_entity->second.model);
+    synced_entity->second.msg.coordinates = getEntityCoords(*synced_entity->second.model);
     synced_entity->second.msg.expiry = 0;
     synced_entity->second.model = nullptr;
     _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(SYNCED_ENTITY_DELETED)), entity_name.c_str());
@@ -227,9 +253,20 @@ void GazeboVsm::parseSdf(const pugi::xml_node& node, sdf::ElementPtr sdf) {
     }
 }
 
-std::vector<float> GazeboVsm::getModelCoords(const physics::Model& model) {
+std::vector<float> GazeboVsm::getEntityCoords(const physics::Entity& model) {
     const auto& pos = model.WorldPose().Pos();
     return {static_cast<float>(pos.X()), static_cast<float>(pos.Y()), static_cast<float>(pos.Z())};
+}
+
+std::string GazeboVsm::envSubstitute(std::string str, bool required) const {
+    if (str.front() == '$') {
+        const char* env = std::getenv(str.c_str() + 1);
+        if (required && (!env || !*env)) {
+            throw std::runtime_error("VSM plugin: missig required enviornment variable " + str);
+        }
+        str = env ? env : "";
+    }
+    return str;
 }
 
 std::string GazeboVsm::yamlField(YAML::Node node, std::string field, bool required) const {
@@ -243,15 +280,7 @@ std::string GazeboVsm::yamlField(YAML::Node node, std::string field, bool requir
         }
         return std::string();
     }
-    auto str = scalar.as<std::string>();
-    if (str.front() == '$') {
-        const char* env = std::getenv(str.c_str() + 1);
-        if (required && (!env || !*env)) {
-            throw std::runtime_error("VSM plugin: missig required enviornment variable " + str);
-        }
-        str = env ? env : "";
-    }
-    return str;
+    return envSubstitute(scalar.as<std::string>(), required);
 }
 
 GZ_REGISTER_SYSTEM_PLUGIN(GazeboVsm)

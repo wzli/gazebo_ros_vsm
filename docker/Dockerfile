@@ -56,5 +56,6 @@ COPY gazebo_vsm src/gazebo_vsm
 COPY gazebo_vsm_demo src/gazebo_vsm_demo
 RUN . /opt/ros/melodic/setup.sh && catkin init && catkin build -DCMAKE_BUILD_TYPE=Release --force-color
 
-CMD bash -c "source ${CATKIN_WS}/devel/setup.bash && roslaunch gazebo_vsm_demo gazebo_vsm_demo.launch" \
-  & cd ${GZWEB_WS} && npm start
+# setup entrypoint
+COPY docker/entrypoint.sh .
+CMD ./entrypoint.sh

@@ -1,9 +1,9 @@
 ---
-version: "2.2"
+version: "2.3"
 
 services:
   sim_node:
-    scale: 1
+    scale: 2
     image: gazebo_ros_vsm_demo
     ports:
       - 8080
@@ -11,9 +11,6 @@ services:
       - SPAWN_X=0
       - SPAWN_Y=0
       - SPAWN_YAW=0
-      - VSM_NAME=test_name
-      - VSM_ADDRESS=localhost
-      - VSM_PORT=11511
       - VSM_VERBOSITY=2
     build:
       dockerfile: docker/Dockerfile

@@ -52,13 +52,18 @@ void GazeboVsm::Load(int argc, char** argv) {
             [](vsm::msecs time, vsm::Logger::Level level, vsm::Error error, const void* data,
                     size_t /*len*/) {
                 std::cout << "VSM plugin: t " << time.count() << ", lv " << level << ", type "
-                          << error.type << ", code " << error.code << ", msg " << error.what()
-                          << " "
-                          << (error.type == SYNCED_ENTITY_ADDED ||
-                                                     error.type == BOOTSTRAP_PEER_ADDED
-                                             ? (const char*) data
-                                             : "")
-                          << std::endl;
+                          << error.type << ", code " << error.code << ", msg " << error.what();
+                switch (error.type) {
+                    // fall through
+                    case WORLD_CREATED:
+                    case SYNCED_ENTITY_ADDED:
+                    case TRACKED_ENTITY_FOUND:
+                    case BOOTSTRAP_PEER_ADDED:
+                        printf(" %s\r\n", static_cast<const char*>(data));
+                        break;
+                    default:
+                        puts("");
+                }
             });
     // create mesh node
     initMeshNode();
@@ -123,11 +128,13 @@ void GazeboVsm::onWorldCreated(std::string world_name) {
     for (auto& synced_entity : _synced_entities) {
         synced_entity.second.model = _world->ModelByName(synced_entity.first);
     }
-    _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(WORLD_CREATED)));
+    _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(WORLD_CREATED)), world_name.c_str());
     // find tracked entity if configured
-    _tracked_entity = _world->EntityByName(yamlField(_yaml, "tracked_entity", false));
+    auto tracked_name = yamlField(_yaml, "tracked_entity", false);
+    _tracked_entity = _world->EntityByName(tracked_name);
     if (_tracked_entity) {
-        _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(TRACKED_ENTITY_FOUND)));
+        _logger->log(
+                vsm::Logger::INFO, vsm::Error(STRERR(TRACKED_ENTITY_FOUND)), tracked_name.c_str());
     }
 }
 
@@ -156,7 +163,7 @@ void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo&) {
             const auto& data = vsm_entity.second.entity.data;
             if (parseModelState(_model_state, data.data(), data.size())) {
                 synced_entity->second.model->SetState(_model_state);
-                std::cout << "Parsed:\r\n" << _model_state_sdf->ToString("") << std::endl;
+                // std::cout << "Parsed:\r\n" << _model_state_sdf->ToString("") << std::endl;
             }
         }
     };
@@ -168,7 +175,6 @@ void GazeboVsm::onWorldUpdateEnd() {
     if (_tracked_entity) {
         _mesh_node->getPeerTracker().getNodeInfo().coordinates = getEntityCoords(*_tracked_entity);
     }
-
     // convert synced entities list to message and broadcast
     std::vector<vsm::EntityT> entity_msgs;
     entity_msgs.reserve(_synced_entities.size());
@@ -192,6 +198,12 @@ void GazeboVsm::onWorldUpdateEnd() {
 }
 
 void GazeboVsm::onAddEntity(std::string entity_name) {
+    // match tracked entity if configured
+    if (!_tracked_entity && _world && entity_name == yamlField(_yaml, "tracked_entity", false)) {
+        _tracked_entity = _world->EntityByName(entity_name);
+        _logger->log(
+                vsm::Logger::INFO, vsm::Error(STRERR(TRACKED_ENTITY_FOUND)), entity_name.c_str());
+    }
     // add entity to synced_entities if name pattern is matched
     for (const auto& synced_entity : _yaml["synced_entities"]) {
         if (std::regex_match(entity_name, std::regex(yamlField(synced_entity, "name_pattern")))) {

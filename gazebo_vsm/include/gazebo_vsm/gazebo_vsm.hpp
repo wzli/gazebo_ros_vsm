@@ -4,6 +4,7 @@
 #include <gazebo/common/Plugin.hh>
 #include <vsm/mesh_node.hpp>
 #include <yaml-cpp/yaml.h>
+#include <pugixml.hpp>
 #include <memory>
 #include <unordered_map>
 
@@ -16,6 +17,7 @@ public:
         WORLD_CREATED,
         SYNCED_ENTITY_ADDED,
         SYNCED_ENTITY_DELETED,
+        MODEL_STATE_SDF_PARSE_FAIL,
     };
 
     void Load(int argc, char** argv);
@@ -34,12 +36,14 @@ private:
     };
 
     void initMeshNode();
-
+    bool parseModelState(physics::ModelState& model_state, const void* data, size_t len);
+    static void parseSdf(const pugi::xml_node& node, sdf::ElementPtr sdf);
     static std::vector<float> getModelCoords(const physics::Model& model);
-
     std::string yamlField(YAML::Node node, std::string field, bool required = true) const;
 
     physics::WorldPtr _world;
+    physics::ModelState _model_state;
+    sdf::ElementPtr _model_state_sdf;
 
     event::ConnectionPtr _world_created_event;
     event::ConnectionPtr _world_update_begin_event;

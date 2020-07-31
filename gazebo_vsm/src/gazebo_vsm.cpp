@@ -108,17 +108,14 @@ void GazeboVsm::onWorldCreated(std::string world_name) {
         synced_entity.second.model = _world->ModelByName(synced_entity.first);
     }
     _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(WORLD_CREATED)));
-
-    auto models = _world->Models();
-    for (auto model : models) {
-        gazebo::msgs::Model msg;
-        model->FillMsg(msg);
-        // std::cout << msg.DebugString() << std::endl;
-        std::cout << msg.name() << std::endl;
-    }
 }
 
-void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo& update_info) {
+void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo&) {
+    if (!_model_state_sdf) {
+        auto states_sdf = _world->SDF()->GetElement("state");
+        states_sdf->ClearElements();
+        _model_state_sdf = states_sdf->AddElement("model");
+    }
     const auto vsm_entities_callback = [&](const vsm::EgoSphere::EntityLookup& vsm_entities) {
         for (const auto& vsm_entity : vsm_entities) {
             auto synced_entity = _synced_entities.find(vsm_entity.first);
@@ -135,10 +132,11 @@ void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo& update_info) {
                 continue;
             }
             // parse message and update model
-            gazebo::msgs::Model protobuf_msg;
             const auto& data = vsm_entity.second.entity.data;
-            protobuf_msg.ParseFromArray(data.data(), data.size());
-            synced_entity->second.model->ProcessMsg(protobuf_msg);
+            if (parseModelState(_model_state, data.data(), data.size())) {
+                synced_entity->second.model->SetState(_model_state);
+                // std::cout << "Parsed:\r\n" << _model_state_sdf->ToString("") << std::endl;
+            }
         }
     };
     _mesh_node->readEntities(vsm_entities_callback);
@@ -152,11 +150,11 @@ void GazeboVsm::onWorldUpdateEnd() {
         entity_msgs.emplace_back(synced_entity->second.msg);
         if (synced_entity->second.model) {
             // serialize entity message
-            gazebo::msgs::Model protobuf_msg;
-            synced_entity->second.model->FillMsg(protobuf_msg);
-            auto& data = entity_msgs.back().data;
-            data.resize(protobuf_msg.ByteSize());
-            protobuf_msg.SerializeToArray(data.data(), data.size());
+            physics::ModelState model_state(synced_entity->second.model);
+            _model_state_sdf->ClearElements();
+            model_state.FillSDF(_model_state_sdf);
+            auto model_sdf_str = _model_state_sdf->ToString("");
+            entity_msgs.back().data.assign(model_sdf_str.begin(), model_sdf_str.end());
             entity_msgs.back().coordinates = getModelCoords(*synced_entity->second.model);
             ++synced_entity;
         } else {
@@ -198,6 +196,35 @@ void GazeboVsm::onDeleteEntity(std::string entity_name) {
     synced_entity->second.msg.expiry = 0;
     synced_entity->second.model = nullptr;
     _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(SYNCED_ENTITY_DELETED)), entity_name.c_str());
+}
+
+bool GazeboVsm::parseModelState(physics::ModelState& model_state, const void* data, size_t len) {
+    pugi::xml_document dom;
+    auto parse_result = dom.load_buffer(data, len);
+    auto root = dom.child("model");
+    if (!parse_result || !root) {
+        _logger->log(vsm::Logger::WARN,
+                vsm::Error(STRERR(MODEL_STATE_SDF_PARSE_FAIL), parse_result.status), data, len);
+        return false;
+    }
+    _model_state_sdf->ClearElements();
+    parseSdf(root, _model_state_sdf);
+    model_state.Load(_model_state_sdf);
+    return true;
+}
+
+void GazeboVsm::parseSdf(const pugi::xml_node& node, sdf::ElementPtr sdf) {
+    if (*node.child_value()) {
+        sdf->Set(node.child_value());
+    }
+    for (const auto& attr : node.attributes()) {
+        sdf->GetAttribute(attr.name())->Set(attr.value());
+    }
+    for (const auto& elem : node.children()) {
+        if (*elem.name()) {
+            parseSdf(elem, sdf->AddElement(elem.name()));
+        }
+    }
 }
 
 std::vector<float> GazeboVsm::getModelCoords(const physics::Model& model) {

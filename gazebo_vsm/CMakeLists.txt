@@ -17,7 +17,7 @@ catkin_package(
   LIBRARIES
     ${PROJECT_NAME}
   CATKIN_DEPENDS
-    ${PKG_DEPS}
+    pugixml-dev
 )
 
 ###########
@@ -56,6 +56,7 @@ target_link_libraries(${PROJECT_NAME}
   ${catkin_LIBRARIES}
   ${GAZEBO_LIBRARIES}
   yaml-cpp
+  pugixml
 )
 
 #############

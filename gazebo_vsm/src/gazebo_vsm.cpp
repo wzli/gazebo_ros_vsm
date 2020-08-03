@@ -45,6 +45,22 @@ void GazeboVsm::Load(int argc, char** argv) {
     _delete_entity_event = gazebo::event::Events::ConnectDeleteEntity(
             [this](std::string entity_name) { onDeleteEntity(std::move(entity_name)); });
 
+    // throw error on disabled events
+    _pause_event = gazebo::event::Events::ConnectPause(
+            [](bool) { throw std::runtime_error("VSM plugin: pause event disabled"); });
+
+    _step_event = gazebo::event::Events::ConnectStep(
+            []() { throw std::runtime_error("VSM plugin: step event disabled"); });
+
+    _stop_event = gazebo::event::Events::ConnectStop(
+            []() { throw std::runtime_error("VSM plugin: stop event disabled"); });
+
+    _time_reset_event = gazebo::event::Events::ConnectTimeReset(
+            []() { throw std::runtime_error("VSM plugin: time reset event disabled"); });
+
+    _world_reset_event = gazebo::event::Events::ConnectWorldReset(
+            []() { throw std::runtime_error("VSM plugin: world reset event disabled"); });
+
     // create logger and register log handler
     _logger = std::make_shared<vsm::Logger>();
     _logger->addLogHandler(

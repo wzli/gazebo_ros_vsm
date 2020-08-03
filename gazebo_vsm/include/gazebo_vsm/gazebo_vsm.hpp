@@ -55,6 +55,13 @@ private:
     event::ConnectionPtr _add_entity_event;
     event::ConnectionPtr _delete_entity_event;
 
+    // disabled events
+    event::ConnectionPtr _pause_event;
+    event::ConnectionPtr _step_event;
+    event::ConnectionPtr _stop_event;
+    event::ConnectionPtr _time_reset_event;
+    event::ConnectionPtr _world_reset_event;
+
     YAML::Node _yaml;
     std::unique_ptr<vsm::MeshNode> _mesh_node;
     std::shared_ptr<vsm::Logger> _logger;

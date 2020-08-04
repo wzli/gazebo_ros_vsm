@@ -70,6 +70,7 @@ private:
 
     std::unordered_map<std::string, SyncedEntity> _synced_entities;
 
+    std::vector<std::string> _added_entities;
     std::vector<std::string> _deleted_entities;
     std::vector<std::string> _prev_deleted_entities;
     vsm::msecs _prev_msg_ts;

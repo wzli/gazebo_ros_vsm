@@ -165,6 +165,7 @@ void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo&) {
         return;
     }
     const auto vsm_entities_callback = [&](const vsm::EgoSphere::EntityLookup& vsm_entities) {
+        std::sort(_added_entities.begin(), _added_entities.end());
         for (const auto& synced_entity : _synced_entities) {
             // skip if entity was already deleted
             if (!synced_entity.second.model || !synced_entity.second.model->GetWorld()) {
@@ -172,11 +173,14 @@ void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo&) {
             }
             // look for entity in vsm egosphere
             auto vsm_entity = vsm_entities.find(synced_entity.first);
-            // deleted entity if not found in vsm egosphere
+            // deleted entity if not found in vsm egosphere and not recently added
             if (vsm_entity == vsm_entities.end()) {
-                _world->RemoveModel(synced_entity.second.model);
-                _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(REMOTE_ENTITY_DELETED)),
-                        synced_entity.first.c_str());
+                if (!std::binary_search(
+                            _added_entities.begin(), _added_entities.end(), synced_entity.first)) {
+                    _world->RemoveModel(synced_entity.second.model);
+                    _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(REMOTE_ENTITY_DELETED)),
+                            synced_entity.first.c_str());
+                }
                 continue;
             }
             // skip sync if entity update was self generated
@@ -190,6 +194,7 @@ void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo&) {
                 // std::cout << "Parsed:\r\n" << _model_state_sdf->ToString("") << std::endl;
             }
         }
+        _added_entities.clear();
     };
     _mesh_node->readEntities(vsm_entities_callback);
 }
@@ -251,6 +256,7 @@ void GazeboVsm::onAddEntity(std::string entity_name) {
                                                               _world->BaseByName(entity_name))
                                                     : nullptr,
                     std::move(entity_msg), synced_entity};
+            _added_entities.push_back(entity_name);
             _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(SYNCED_ENTITY_ADDED)),
                     entity_name.c_str());
             break;

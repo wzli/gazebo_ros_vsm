@@ -73,10 +73,10 @@ void GazeboVsm::Load(int argc, char** argv) {
                     case SYNCED_ENTITY_ADDED:
                     case TRACKED_ENTITY_FOUND:
                     case BOOTSTRAP_PEER_ADDED:
-                        printf(" %s\r\n", static_cast<const char*>(data));
-                        break;
+                        std::cout << static_cast<const char*>(data);
+                    // fall through
                     default:
-                        puts("");
+                        std::cout << std::endl;
                 }
             });
     // create mesh node

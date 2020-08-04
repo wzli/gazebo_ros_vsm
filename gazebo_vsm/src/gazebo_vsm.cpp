@@ -247,7 +247,9 @@ void GazeboVsm::onAddEntity(std::string entity_name) {
             entity_msg.hop_limit = std::stoul(yamlField(synced_entity, "hop_limit"));
             entity_msg.range = std::stof(yamlField(synced_entity, "range"));
             entity_msg.expiry = std::stoul(yamlField(synced_entity, "expiry"));
-            _synced_entities[entity_name] = {_world ? _world->ModelByName(entity_name) : nullptr,
+            _synced_entities[entity_name] = {_world ? boost::dynamic_pointer_cast<physics::Model>(
+                                                              _world->BaseByName(entity_name))
+                                                    : nullptr,
                     std::move(entity_msg), synced_entity};
             _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(SYNCED_ENTITY_ADDED)),
                     entity_name.c_str());

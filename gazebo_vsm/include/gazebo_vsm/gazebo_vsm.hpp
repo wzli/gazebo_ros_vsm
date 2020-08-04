@@ -20,6 +20,7 @@ public:
         MODEL_STATE_SDF_PARSE_FAIL,
         TRACKED_ENTITY_FOUND,
         BOOTSTRAP_PEER_ADDED,
+        REMOTE_ENTITY_DELETED,
     };
 
     void Load(int argc, char** argv);
@@ -28,7 +29,9 @@ public:
     void onWorldUpdateBegin(const common::UpdateInfo& update_info);
     void onWorldUpdateEnd();
     void onAddEntity(std::string entity_name);
-    void onDeleteEntity(std::string entity_name);
+
+    bool onVsmUpdate(vsm::EgoSphere::EntityUpdate* new_entity,
+            const vsm::EgoSphere::EntityUpdate* old_entity, const vsm::NodeInfoT& source);
 
 private:
     struct SyncedEntity {
@@ -53,7 +56,6 @@ private:
     event::ConnectionPtr _world_update_begin_event;
     event::ConnectionPtr _world_update_end_event;
     event::ConnectionPtr _add_entity_event;
-    event::ConnectionPtr _delete_entity_event;
 
     // disabled events
     event::ConnectionPtr _pause_event;
@@ -67,6 +69,10 @@ private:
     std::shared_ptr<vsm::Logger> _logger;
 
     std::unordered_map<std::string, SyncedEntity> _synced_entities;
+
+    std::vector<std::string> _deleted_entities;
+    std::vector<std::string> _prev_deleted_entities;
+    vsm::msecs _prev_msg_ts;
 };
 
 }  // namespace gazebo

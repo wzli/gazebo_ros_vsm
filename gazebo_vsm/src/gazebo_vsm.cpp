@@ -1,6 +1,7 @@
 #include <gazebo_vsm/gazebo_vsm.hpp>
 #include <vsm/zmq_transport.hpp>
 
+#include <algorithm>
 #include <cstdlib>
 #include <exception>
 #include <regex>
@@ -41,9 +42,6 @@ void GazeboVsm::Load(int argc, char** argv) {
 
     _add_entity_event = gazebo::event::Events::ConnectAddEntity(
             [this](std::string entity_name) { onAddEntity(std::move(entity_name)); });
-
-    _delete_entity_event = gazebo::event::Events::ConnectDeleteEntity(
-            [this](std::string entity_name) { onDeleteEntity(std::move(entity_name)); });
 
     // throw error on disabled events
     _pause_event = gazebo::event::Events::ConnectPause(
@@ -92,7 +90,11 @@ void GazeboVsm::initMeshNode() {
             std::stoul(yamlField(_yaml, "entity_updates_size")),
             // ego sphere
             {
-                    nullptr,  // entity_update_handler
+                    [this](vsm::EgoSphere::EntityUpdate* new_entity,
+                            const vsm::EgoSphere::EntityUpdate* old_entity,
+                            const vsm::NodeInfoT& source) {
+                        return onVsmUpdate(new_entity, old_entity, source);
+                    },
                     std::stoul(yamlField(_yaml, "timestamp_lookup_size")),
             },
             // peer tracker
@@ -155,30 +157,36 @@ void GazeboVsm::onWorldCreated(std::string world_name) {
 }
 
 void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo&) {
+    // skip first round before there is anything to sync
     if (!_model_state_sdf) {
         auto states_sdf = _world->SDF()->GetElement("state");
         states_sdf->ClearElements();
         _model_state_sdf = states_sdf->AddElement("model");
+        return;
     }
     const auto vsm_entities_callback = [&](const vsm::EgoSphere::EntityLookup& vsm_entities) {
-        for (const auto& vsm_entity : vsm_entities) {
-            auto synced_entity = _synced_entities.find(vsm_entity.first);
-            if (!vsm_entity.second.hops) {
-                // entity was self generated, skip sync update
+        for (const auto& synced_entity : _synced_entities) {
+            // skip if entity was already deleted
+            if (!synced_entity.second.model || !synced_entity.second.model->GetWorld()) {
                 continue;
             }
-            if (synced_entity == _synced_entities.end()) {
-                // entity doesn't exist yet, create it
+            // look for entity in vsm egosphere
+            auto vsm_entity = vsm_entities.find(synced_entity.first);
+            // deleted entity if not found in vsm egosphere
+            if (vsm_entity == vsm_entities.end()) {
+                _world->RemoveModel(synced_entity.second.model);
+                _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(REMOTE_ENTITY_DELETED)),
+                        synced_entity.first.c_str());
                 continue;
             }
-            if (!synced_entity->second.model) {
-                // entity was deleted, skip
+            // skip sync if entity update was self generated
+            if (!vsm_entity->second.hops) {
                 continue;
             }
             // parse message and update model
-            const auto& data = vsm_entity.second.entity.data;
+            const auto& data = vsm_entity->second.entity.data;
             if (parseModelState(_model_state, data.data(), data.size())) {
-                synced_entity->second.model->SetState(_model_state);
+                synced_entity.second.model->SetState(_model_state);
                 // std::cout << "Parsed:\r\n" << _model_state_sdf->ToString("") << std::endl;
             }
         }
@@ -188,15 +196,20 @@ void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo&) {
 
 void GazeboVsm::onWorldUpdateEnd() {
     // update mesh node pose based on tracked entity
-    if (_tracked_entity) {
+    if (_tracked_entity && _tracked_entity->GetWorld()) {
         _mesh_node->getPeerTracker().getNodeInfo().coordinates = getEntityCoords(*_tracked_entity);
     }
     // convert synced entities list to message and broadcast
     std::vector<vsm::EntityT> entity_msgs;
     entity_msgs.reserve(_synced_entities.size());
     for (auto synced_entity = _synced_entities.begin(); synced_entity != _synced_entities.end();) {
+        // skip invalid entity
+        if (!synced_entity->second.model) {
+            ++synced_entity;
+            continue;
+        }
         entity_msgs.emplace_back(synced_entity->second.msg);
-        if (synced_entity->second.model) {
+        if (synced_entity->second.model->GetWorld()) {
             // serialize entity message
             physics::ModelState model_state(synced_entity->second.model);
             _model_state_sdf->ClearElements();
@@ -207,10 +220,14 @@ void GazeboVsm::onWorldUpdateEnd() {
             ++synced_entity;
         } else {
             // delete entities that are zeroed out (but include expiry message in broadcast)
+            entity_msgs.back().expiry = 0;
+            entity_msgs.back().coordinates = getEntityCoords(*synced_entity->second.model);
+            _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(SYNCED_ENTITY_DELETED)),
+                    synced_entity->first.c_str());
             synced_entity = _synced_entities.erase(synced_entity);
         }
     }
-    _mesh_node->updateEntities(entity_msgs, true);
+    auto msgs = _mesh_node->updateEntities(entity_msgs, true);
 }
 
 void GazeboVsm::onAddEntity(std::string entity_name) {
@@ -239,17 +256,28 @@ void GazeboVsm::onAddEntity(std::string entity_name) {
     }
 }
 
-void GazeboVsm::onDeleteEntity(std::string entity_name) {
-    auto synced_entity = _synced_entities.find(entity_name);
-    // only process synced entities
-    if (synced_entity == _synced_entities.end()) {
-        return;
+bool GazeboVsm::onVsmUpdate(vsm::EgoSphere::EntityUpdate* new_entity,
+        const vsm::EgoSphere::EntityUpdate* old_entity, const vsm::NodeInfoT& /*source*/) {
+    // const auto& self = _mesh_node->getPeerTracker().getNodeInfo();
+
+    // add to deleted entities
+    if (!new_entity) {
+        _deleted_entities.push_back(old_entity->entity.name);
+        return true;
     }
-    // zero out entity fields
-    synced_entity->second.msg.coordinates = getEntityCoords(*synced_entity->second.model);
-    synced_entity->second.msg.expiry = 0;
-    synced_entity->second.model = nullptr;
-    _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(SYNCED_ENTITY_DELETED)), entity_name.c_str());
+    // reset deleted entities list every time self simulation updates
+    if (new_entity->hops == 0 && new_entity->source_timestamp != _prev_msg_ts) {
+        _prev_msg_ts = new_entity->source_timestamp;
+        std::sort(_deleted_entities.begin(), _deleted_entities.end());
+        _prev_deleted_entities.swap(_deleted_entities);
+        _deleted_entities.clear();
+    }
+    // only allow entity creation if entity wasn't deleted in the previous round
+    if (!old_entity) {
+        return !std::binary_search(_prev_deleted_entities.begin(), _prev_deleted_entities.end(),
+                new_entity->entity.name);
+    }
+    return true;
 }
 
 bool GazeboVsm::parseModelState(physics::ModelState& model_state, const void* data, size_t len) {

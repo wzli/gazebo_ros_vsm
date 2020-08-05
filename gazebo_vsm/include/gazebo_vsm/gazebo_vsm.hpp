@@ -3,6 +3,7 @@
 #include <gazebo/physics/physics.hh>
 #include <gazebo/common/Plugin.hh>
 #include <vsm/mesh_node.hpp>
+#include <vsm/zmq_transport.hpp>
 #include <yaml-cpp/yaml.h>
 #include <pugixml.hpp>
 #include <memory>
@@ -21,6 +22,17 @@ public:
         TRACKED_ENTITY_FOUND,
         BOOTSTRAP_PEER_ADDED,
         REMOTE_ENTITY_DELETED,
+
+        // req/rep codes
+        SOCKET_CONNECT_FAIL,
+        MESSAGE_VERIFY_FAIL,
+        REQUEST_MISSING_SOURCE,
+        REQUEST_NONEXISTING_ENTITY,
+        REQUEST_SENT,
+        REQUEST_RESPONSE_SENT,
+        REQUEST_RESPONSE_RECEIVED,
+        REQUEST_RESPONSE_MISMATCH,
+        REQUEST_RESPONSE_REJECTED,
     };
 
     void Load(int argc, char** argv);
@@ -33,11 +45,23 @@ public:
     bool onVsmUpdate(vsm::EgoSphere::EntityUpdate* new_entity,
             const vsm::EgoSphere::EntityUpdate* old_entity, const vsm::NodeInfoT& source);
 
+    void onVsmReqMsg(const void* buffer, size_t len);
+    void onVsmRepMsg(const void* buffer, size_t len);
+
+    const vsm::NodeInfo* parseMsg(const void* buffer, size_t len) const;
+    bool sendMsg(vsm::NodeInfoT msg, const char* topic);
+
 private:
     struct SyncedEntity {
         physics::ModelPtr model;
         vsm::EntityT msg;
         YAML::Node yaml;
+    };
+
+    struct EntityRequest {
+        std::string source;
+        std::string name;
+        std::string sdf;
     };
 
     void initMeshNode();
@@ -67,8 +91,11 @@ private:
     YAML::Node _yaml;
     std::unique_ptr<vsm::MeshNode> _mesh_node;
     std::shared_ptr<vsm::Logger> _logger;
+    std::unique_ptr<zmq::socket_t> _tx_socket;
 
     std::unordered_map<std::string, SyncedEntity> _synced_entities;
+    std::unordered_map<uint32_t, EntityRequest> _entity_requests;
+    uint32_t _entity_request_count;
 
     std::vector<std::string> _added_entities;
     std::vector<std::string> _deleted_entities;

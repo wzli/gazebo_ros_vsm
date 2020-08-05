@@ -1,5 +1,4 @@
 #include <gazebo_vsm/gazebo_vsm.hpp>
-#include <vsm/zmq_transport.hpp>
 
 #include <algorithm>
 #include <cstdlib>
@@ -73,6 +72,10 @@ void GazeboVsm::Load(int argc, char** argv) {
                     case SYNCED_ENTITY_ADDED:
                     case TRACKED_ENTITY_FOUND:
                     case BOOTSTRAP_PEER_ADDED:
+                    case REQUEST_SENT:
+                    case REQUEST_RESPONSE_SENT:
+                    case REQUEST_RESPONSE_RECEIVED:
+                    case REQUEST_NONEXISTING_ENTITY:
                         std::cout << " " << static_cast<const char*>(data);
                     // fall through
                     default:
@@ -84,6 +87,7 @@ void GazeboVsm::Load(int argc, char** argv) {
 }
 
 void GazeboVsm::initMeshNode() {
+    auto zmq_transport = std::make_shared<vsm::ZmqTransport>("udp://*:" + yamlField(_yaml, "port"));
     _mesh_node = std::make_unique<vsm::MeshNode>(vsm::MeshNode::Config{
             vsm::msecs(std::stoul(yamlField(_yaml, "peer_update_interval"))),
             vsm::msecs(std::stoul(yamlField(_yaml, "entity_expiry_interval"))),
@@ -109,9 +113,20 @@ void GazeboVsm::initMeshNode() {
                     std::stoul(yamlField(_yaml, "peer_lookup_size")),
                     std::stof(yamlField(_yaml, "peer_rank_decay")),
             },
-            std::make_shared<vsm::ZmqTransport>("udp://*:" + yamlField(_yaml, "port")), _logger,
+            zmq_transport, _logger,
             // std::function<msecs(void)> local_clock
     });
+
+    // register request and response message handlers
+    if (zmq_transport->addReceiver(
+                [this](const void* buffer, size_t len) { onVsmReqMsg(buffer, len); }, "req") ||
+            zmq_transport->addReceiver(
+                    [this](const void* buffer, size_t len) { onVsmRepMsg(buffer, len); }, "rep")) {
+        throw std::runtime_error("VSM plugin: failed to initalize req/rep handlers.");
+    }
+    // create req tx socket
+    _tx_socket =
+            std::make_unique<zmq::socket_t>(zmq_transport->getContext(), zmq::socket_type::radio);
 
     // inject bootstrap peers
     for (const auto& bootstrap_peer : _yaml["bootstrap_peers"]) {
@@ -131,6 +146,62 @@ void GazeboVsm::initMeshNode() {
         }
     });
     mesh_thread.detach();
+}
+
+const vsm::NodeInfo* GazeboVsm::parseMsg(const void* buffer, size_t len) const {
+    auto msg = flatbuffers::GetRoot<vsm::NodeInfo>(buffer);
+    flatbuffers::Verifier verifier(static_cast<const uint8_t*>(buffer), len);
+    if (!msg->Verify(verifier)) {
+        _logger->log(vsm::Logger::WARN, vsm::Error(STRERR(MESSAGE_VERIFY_FAIL)), buffer, len);
+        return nullptr;
+    }
+    return msg;
+}
+
+void GazeboVsm::onVsmReqMsg(const void* buffer, size_t len) {
+    const vsm::NodeInfo* msg = parseMsg(buffer, len);
+    if (!msg) {
+        return;
+    }
+    if (!msg->address()) {
+        _logger->log(vsm::Logger::WARN, vsm::Error(STRERR(REQUEST_MISSING_SOURCE)), msg, len);
+        return;
+    }
+    vsm::NodeInfoT rep;
+    msg->UnPackTo(&rep);
+    auto synced_entity = _synced_entities.find(rep.name);
+    if (synced_entity == _synced_entities.end() || !synced_entity->second.model ||
+            !synced_entity->second.model->GetWorld()) {
+        rep.name.clear();
+        _logger->log(vsm::Logger::WARN, vsm::Error(STRERR(REQUEST_NONEXISTING_ENTITY)), msg, len);
+    } else {
+        auto entity_sdf = synced_entity->second.model->GetSDF();
+        rep.name = entity_sdf->ToString("");
+    }
+    if (sendMsg(std::move(rep), "rep")) {
+        _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(REQUEST_RESPONSE_SENT), msg->sequence()),
+                msg->name()->c_str());
+    }
+}
+
+void GazeboVsm::onVsmRepMsg(const void* buffer, size_t len) {
+    const vsm::NodeInfo* msg = parseMsg(buffer, len);
+    if (!msg) {
+        return;
+    }
+    auto entity_request = _entity_requests.find(msg->sequence());
+    if (entity_request == _entity_requests.end()) {
+        _logger->log(vsm::Logger::WARN,
+                vsm::Error(STRERR(REQUEST_RESPONSE_MISMATCH), msg->sequence()), msg, len);
+        return;
+    }
+    if (!msg->name()) {
+        _entity_requests.erase(entity_request);
+        _logger->log(vsm::Logger::WARN,
+                vsm::Error(STRERR(REQUEST_RESPONSE_REJECTED), msg->sequence()), msg, len);
+        return;
+    }
+    entity_request->second.sdf = msg->name()->str();
 }
 
 void GazeboVsm::onWorldCreated(std::string world_name) {
@@ -195,6 +266,32 @@ void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo&) {
             }
         }
         _added_entities.clear();
+
+        // add pending entities
+        for (auto req = _entity_requests.begin(); req != _entity_requests.end();) {
+            if (_synced_entities.find(req->second.name) != _synced_entities.end()) {
+                // delete request if entity already exist
+                req = _entity_requests.erase(req);
+            } else if (!req->second.sdf.empty()) {
+                // create model if response sdf is received
+                _logger->log(vsm::Logger::INFO,
+                        vsm::Error(STRERR(REQUEST_RESPONSE_RECEIVED), req->first),
+                        req->second.name.c_str());
+                // std::cout << "got req: \r\n" << req->second.sdf << std::endl;
+                req = _entity_requests.erase(req);
+            } else {
+                // send request again otherwise
+                vsm::NodeInfoT msg;
+                msg.address = req->second.source;
+                msg.name = req->second.name;
+                msg.sequence = req->first;
+                if (sendMsg(std::move(msg), "req")) {
+                    _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(REQUEST_SENT), req->first),
+                            req->second.name.c_str());
+                }
+                ++req;
+            }
+        }
     };
     _mesh_node->readEntities(vsm_entities_callback);
 }
@@ -265,7 +362,7 @@ void GazeboVsm::onAddEntity(std::string entity_name) {
 }
 
 bool GazeboVsm::onVsmUpdate(vsm::EgoSphere::EntityUpdate* new_entity,
-        const vsm::EgoSphere::EntityUpdate* old_entity, const vsm::NodeInfoT& /*source*/) {
+        const vsm::EgoSphere::EntityUpdate* old_entity, const vsm::NodeInfoT& source) {
     // const auto& self = _mesh_node->getPeerTracker().getNodeInfo();
 
     // add to deleted entities
@@ -280,11 +377,37 @@ bool GazeboVsm::onVsmUpdate(vsm::EgoSphere::EntityUpdate* new_entity,
         _prev_deleted_entities.swap(_deleted_entities);
         _deleted_entities.clear();
     }
-    // only allow entity creation if entity wasn't deleted in the previous round
     if (!old_entity) {
-        return !std::binary_search(_prev_deleted_entities.begin(), _prev_deleted_entities.end(),
-                new_entity->entity.name);
+        // only allow entity creation if entity wasn't deleted in the previous round
+        if (std::binary_search(_prev_deleted_entities.begin(), _prev_deleted_entities.end(),
+                    new_entity->entity.name)) {
+            return false;
+        }
+        // if new entity has a remote source, request for sdf inorder to spawn
+        if (new_entity->hops != 0) {
+            EntityRequest req{source.address, new_entity->entity.name, ""};
+            _entity_requests.emplace(++_entity_request_count, std::move(req));
+            return true;
+        }
     }
+    return true;
+}
+
+bool GazeboVsm::sendMsg(vsm::NodeInfoT msg, const char* topic) {
+    int connect_error = zmq_connect(_tx_socket->handle(), msg.address.c_str());
+    if (connect_error) {
+        _logger->log(vsm::Logger::WARN, vsm::Error(STRERR(SOCKET_CONNECT_FAIL), connect_error),
+                msg.address.c_str());
+        return false;
+    }
+    auto source_address = _mesh_node->getPeerTracker().getNodeInfo().address;
+    msg.address.swap(source_address);
+    flatbuffers::FlatBufferBuilder fbb;
+    fbb.Finish(vsm::NodeInfo::Pack(fbb, &msg));
+    zmq::message_t req(fbb.GetBufferPointer(), fbb.GetSize());
+    req.set_group(topic);
+    zmq_sendmsg(_tx_socket->handle(), req.handle(), 0);
+    zmq_disconnect(_tx_socket->handle(), source_address.c_str());
     return true;
 }
 

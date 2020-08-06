@@ -278,6 +278,7 @@ void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo&) {
                 req = _entity_requests.erase(req);
             } else if (!req->second.sdf.empty()) {
                 // create model if response sdf is received
+                _world->InsertModelString("<sdf version='1.6'>" + req->second.sdf + "</sdf>");
                 _logger->log(vsm::Logger::INFO,
                         vsm::Error(STRERR(REQUEST_RESPONSE_RECEIVED), req->first),
                         req->second.name.c_str());

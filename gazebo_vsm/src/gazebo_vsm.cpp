@@ -70,9 +70,12 @@ void GazeboVsm::Load(int argc, char** argv) {
                     // fall through
                     case WORLD_CREATED:
                     case SYNCED_ENTITY_ADDED:
+                    case SYNCED_ENTITY_DELETED:
                     case TRACKED_ENTITY_FOUND:
+                    case MODEL_STATE_SDF_PARSE_FAIL:
                     case BOOTSTRAP_PEER_ADDED:
                     case VSM_ENTITY_DELETED:
+                    case SOCKET_CONNECT_FAIL:
                     case REQUEST_SENT:
                     case REQUEST_RESPONSE_SENT:
                     case REQUEST_RESPONSE_RECEIVED:

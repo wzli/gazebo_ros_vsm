@@ -4,6 +4,7 @@ project(gazebo_vsm)
 
 cmake_policy(SET CMP0054 OLD)
 
+find_package(Boost REQUIRED COMPONENTS iostreams)
 find_package(catkin REQUIRED COMPONENTS)
 find_package(gazebo REQUIRED)
 find_package(yaml-cpp REQUIRED)

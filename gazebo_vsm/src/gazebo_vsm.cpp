@@ -1,4 +1,5 @@
 #include <gazebo_vsm/gazebo_vsm.hpp>
+#include <gazebo_vsm/gzip.hpp>
 
 #include <algorithm>
 #include <cstdlib>
@@ -287,7 +288,8 @@ void GazeboVsm::onWorldUpdateEnd() {
 void GazeboVsm::onAddEntity(std::string entity_name) {
     // match tracked entity if configured
     if (!_tracked_entity && _world && entity_name == yamlField(_yaml, "tracked_entity", false)) {
-        _tracked_entity = _world->EntityByName(entity_name);
+        _tracked_entity =
+                boost::dynamic_pointer_cast<physics::Model>(_world->BaseByName(entity_name));
         _logger->log(
                 vsm::Logger::INFO, vsm::Error(STRERR(TRACKED_ENTITY_FOUND)), entity_name.c_str());
     }
@@ -361,7 +363,7 @@ void GazeboVsm::onVsmReqMsg(const void* buffer, size_t len) {
         _logger->log(vsm::Logger::WARN, vsm::Error(STRERR(REQUEST_NONEXISTING_ENTITY)), msg, len);
     } else {
         auto entity_sdf = synced_entity->second.model->GetSDF();
-        rep.name = entity_sdf->ToString("");
+        rep.name = gzip::compress(entity_sdf->ToString(""));
     }
     if (sendMsg(std::move(rep), "rep")) {
         _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(REQUEST_RESPONSE_SENT), msg->sequence()),
@@ -386,7 +388,7 @@ void GazeboVsm::onVsmRepMsg(const void* buffer, size_t len) {
                 vsm::Error(STRERR(REQUEST_RESPONSE_REJECTED), msg->sequence()), msg, len);
         return;
     }
-    entity_request->second.sdf = msg->name()->str();
+    entity_request->second.sdf = gzip::decompress(msg->name()->str());
 }
 
 bool GazeboVsm::sendMsg(vsm::NodeInfoT msg, const char* topic) {

@@ -66,14 +66,25 @@ tracked_entity: $VSM_NAME
 # List of entity name patterns to synchronize.
 # Synced entity is associated with the first name pattern matched.
 synced_entities:
-
-  - name_pattern: "jersey_barrier.*"
+  - name_pattern: lkj #$VSM_NAME
     filter: 1
     hop_limit: 0
-    range: 0
+    range: 10
     expiry: 5000
 
-  - name_pattern: "table.*"
+  - name_pattern: "Construction.*"
+    filter: 1
+    hop_limit: 0
+    range: 20
+    expiry: 5000
+
+  - name_pattern: "Dumpster.*"
+    filter: 1
+    hop_limit: 0
+    range: 20
+    expiry: 5000
+
+  - name_pattern: "Box.*"
     filter: 1
     hop_limit: 0
     range: 10

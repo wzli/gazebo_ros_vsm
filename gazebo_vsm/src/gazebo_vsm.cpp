@@ -72,6 +72,7 @@ void GazeboVsm::Load(int argc, char** argv) {
                     case SYNCED_ENTITY_ADDED:
                     case TRACKED_ENTITY_FOUND:
                     case BOOTSTRAP_PEER_ADDED:
+                    case VSM_ENTITY_DELETED:
                     case REQUEST_SENT:
                     case REQUEST_RESPONSE_SENT:
                     case REQUEST_RESPONSE_RECEIVED:
@@ -249,7 +250,7 @@ void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo&) {
                 if (!std::binary_search(
                             _added_entities.begin(), _added_entities.end(), synced_entity.first)) {
                     _world->RemoveModel(synced_entity.second.model);
-                    _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(REMOTE_ENTITY_DELETED)),
+                    _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(VSM_ENTITY_DELETED)),
                             synced_entity.first.c_str());
                 }
                 continue;

@@ -21,7 +21,7 @@ public:
         MODEL_STATE_SDF_PARSE_FAIL,
         TRACKED_ENTITY_FOUND,
         BOOTSTRAP_PEER_ADDED,
-        REMOTE_ENTITY_DELETED,
+        VSM_ENTITY_DELETED,
 
         // req/rep codes
         SOCKET_CONNECT_FAIL,

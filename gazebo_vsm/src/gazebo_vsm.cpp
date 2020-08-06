@@ -3,8 +3,8 @@
 #include <algorithm>
 #include <cstdlib>
 #include <exception>
-#include <regex>
 #include <iostream>
+#include <regex>
 
 namespace gazebo {
 
@@ -87,10 +87,10 @@ void GazeboVsm::Load(int argc, char** argv) {
                 }
             });
     // create mesh node
-    initMeshNode();
+    initVsm();
 }
 
-void GazeboVsm::initMeshNode() {
+void GazeboVsm::initVsm() {
     auto zmq_transport = std::make_shared<vsm::ZmqTransport>("udp://*:" + yamlField(_yaml, "port"));
     _mesh_node = std::make_unique<vsm::MeshNode>(vsm::MeshNode::Config{
             vsm::msecs(std::stoul(yamlField(_yaml, "peer_update_interval"))),
@@ -152,14 +152,195 @@ void GazeboVsm::initMeshNode() {
     mesh_thread.detach();
 }
 
-const vsm::NodeInfo* GazeboVsm::parseMsg(const void* buffer, size_t len) const {
-    auto msg = flatbuffers::GetRoot<vsm::NodeInfo>(buffer);
-    flatbuffers::Verifier verifier(static_cast<const uint8_t*>(buffer), len);
-    if (!msg->Verify(verifier)) {
-        _logger->log(vsm::Logger::WARN, vsm::Error(STRERR(MESSAGE_VERIFY_FAIL)), buffer, len);
-        return nullptr;
+void GazeboVsm::onWorldCreated(std::string world_name) {
+    if (_world) {
+        throw std::runtime_error("VSM plugin: multiple worlds not supported.");
     }
-    return msg;
+    _world = gazebo::physics::get_world(world_name);
+    if (!_world) {
+        throw std::runtime_error(
+                "VSM plugin: physics::get_world() fail to return world " + world_name);
+    }
+    // update model pointers for synced entities in world
+    for (auto& synced_entity : _synced_entities) {
+        synced_entity.second.model = _world->ModelByName(synced_entity.first);
+    }
+    _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(WORLD_CREATED)), world_name.c_str());
+    // find tracked entity if configured
+    auto tracked_name = yamlField(_yaml, "tracked_entity", false);
+    _tracked_entity = _world->EntityByName(tracked_name);
+    if (_tracked_entity) {
+        _logger->log(
+                vsm::Logger::INFO, vsm::Error(STRERR(TRACKED_ENTITY_FOUND)), tracked_name.c_str());
+    }
+}
+
+void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo&) {
+    // skip first round before there is anything to sync
+    if (!_model_state_sdf) {
+        auto states_sdf = _world->SDF()->GetElement("state");
+        states_sdf->ClearElements();
+        _model_state_sdf = states_sdf->AddElement("model");
+        return;
+    }
+    // vsm entities are mutexed locked inside the below callback
+    _mesh_node->readEntities([&](const vsm::EgoSphere::EntityLookup& vsm_entities) {
+        // sort added entities list for faster lookup
+        std::sort(_added_entities.begin(), _added_entities.end());
+        // update syncronized entities with latest vsm updates
+        for (const auto& synced_entity : _synced_entities) {
+            // skip if entity was already deleted
+            if (!synced_entity.second.model || !synced_entity.second.model->GetWorld()) {
+                continue;
+            }
+            // look for entity in vsm egosphere
+            auto vsm_entity = vsm_entities.find(synced_entity.first);
+            // deleted entity if not found in vsm egosphere and not recently added
+            if (vsm_entity == vsm_entities.end()) {
+                if (!std::binary_search(
+                            _added_entities.begin(), _added_entities.end(), synced_entity.first)) {
+                    _world->RemoveModel(synced_entity.second.model);
+                    _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(VSM_ENTITY_DELETED)),
+                            synced_entity.first.c_str());
+                }
+                continue;
+            }
+            // skip sync if entity update was self generated
+            if (!vsm_entity->second.hops) {
+                continue;
+            }
+            // parse message and update model
+            const auto& data = vsm_entity->second.entity.data;
+            if (parseModelState(_model_state, data.data(), data.size())) {
+                synced_entity.second.model->SetState(_model_state);
+                // std::cout << "Parsed:\r\n" << _model_state_sdf->ToString("") << std::endl;
+            }
+        }
+        _added_entities.clear();
+
+        // request for full SDF of new entities broadcasted by other nodes
+        for (auto req = _entity_requests.begin(); req != _entity_requests.end();) {
+            if (_synced_entities.find(req->second.name) != _synced_entities.end()) {
+                // delete request if entity already exist
+                req = _entity_requests.erase(req);
+            } else if (!req->second.sdf.empty()) {
+                // create model if response sdf is received
+                _world->InsertModelString("<sdf version='1.6'>" + req->second.sdf + "</sdf>");
+                _logger->log(vsm::Logger::INFO,
+                        vsm::Error(STRERR(REQUEST_RESPONSE_RECEIVED), req->first),
+                        req->second.name.c_str());
+                // std::cout << "got req: \r\n" << req->second.sdf << std::endl;
+                req = _entity_requests.erase(req);
+            } else {
+                // send request again otherwise
+                vsm::NodeInfoT msg;
+                msg.address = req->second.source;
+                msg.name = req->second.name;
+                msg.sequence = req->first;
+                if (sendMsg(std::move(msg), "req")) {
+                    _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(REQUEST_SENT), req->first),
+                            req->second.name.c_str());
+                }
+                ++req;
+            }
+        }
+    });
+}
+
+void GazeboVsm::onWorldUpdateEnd() {
+    // update mesh node pose based on tracked entity
+    if (_tracked_entity && _tracked_entity->GetWorld()) {
+        _mesh_node->getPeerTracker().getNodeInfo().coordinates = getEntityCoords(*_tracked_entity);
+    }
+    // convert synced entities list to message and broadcast
+    std::vector<vsm::EntityT> entity_msgs;
+    entity_msgs.reserve(_synced_entities.size());
+    for (auto synced_entity = _synced_entities.begin(); synced_entity != _synced_entities.end();) {
+        // skip invalid entity
+        if (!synced_entity->second.model) {
+            ++synced_entity;
+            continue;
+        }
+        entity_msgs.emplace_back(synced_entity->second.msg);
+        if (synced_entity->second.model->GetWorld()) {
+            // serialize entity message
+            physics::ModelState model_state(synced_entity->second.model);
+            _model_state_sdf->ClearElements();
+            model_state.FillSDF(_model_state_sdf);
+            auto model_sdf_str = _model_state_sdf->ToString("");
+            entity_msgs.back().data.assign(model_sdf_str.begin(), model_sdf_str.end());
+            entity_msgs.back().coordinates = getEntityCoords(*synced_entity->second.model);
+            ++synced_entity;
+        } else {
+            // delete entities that are zeroed out (but include expiry message in broadcast)
+            entity_msgs.back().expiry = 0;
+            entity_msgs.back().coordinates = getEntityCoords(*synced_entity->second.model);
+            _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(SYNCED_ENTITY_DELETED)),
+                    synced_entity->first.c_str());
+            synced_entity = _synced_entities.erase(synced_entity);
+        }
+    }
+    // broadcast new entity updates
+    auto msgs = _mesh_node->updateEntities(entity_msgs, true);
+}
+
+void GazeboVsm::onAddEntity(std::string entity_name) {
+    // match tracked entity if configured
+    if (!_tracked_entity && _world && entity_name == yamlField(_yaml, "tracked_entity", false)) {
+        _tracked_entity = _world->EntityByName(entity_name);
+        _logger->log(
+                vsm::Logger::INFO, vsm::Error(STRERR(TRACKED_ENTITY_FOUND)), entity_name.c_str());
+    }
+    // add entity to synced_entities if name pattern is matched
+    for (const auto& synced_entity : _yaml["synced_entities"]) {
+        if (std::regex_match(entity_name, std::regex(yamlField(synced_entity, "name_pattern")))) {
+            vsm::EntityT entity_msg;
+            entity_msg.name = entity_name;
+            entity_msg.filter =
+                    static_cast<vsm::Filter>(std::stoi(yamlField(synced_entity, "filter")));
+            entity_msg.hop_limit = std::stoul(yamlField(synced_entity, "hop_limit"));
+            entity_msg.range = std::stof(yamlField(synced_entity, "range"));
+            entity_msg.expiry = std::stoul(yamlField(synced_entity, "expiry"));
+            _synced_entities[entity_name] = {_world ? boost::dynamic_pointer_cast<physics::Model>(
+                                                              _world->BaseByName(entity_name))
+                                                    : nullptr,
+                    std::move(entity_msg), synced_entity};
+            _added_entities.push_back(entity_name);
+            _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(SYNCED_ENTITY_ADDED)),
+                    entity_name.c_str());
+            break;
+        }
+    }
+}
+
+bool GazeboVsm::onVsmUpdate(vsm::EgoSphere::EntityUpdate* new_entity,
+        const vsm::EgoSphere::EntityUpdate* old_entity, const vsm::NodeInfoT& source) {
+    // add to deleted entities
+    if (!new_entity) {
+        _deleted_entities.push_back(old_entity->entity.name);
+        return true;
+    }
+    // reset deleted entities list every time self simulation updates
+    if (new_entity->hops == 0 && new_entity->source_timestamp != _prev_msg_ts) {
+        _prev_msg_ts = new_entity->source_timestamp;
+        std::sort(_deleted_entities.begin(), _deleted_entities.end());
+        _prev_deleted_entities.swap(_deleted_entities);
+        _deleted_entities.clear();
+    }
+    if (!old_entity) {
+        // only allow entity creation if entity wasn't deleted in the previous round
+        if (std::binary_search(_prev_deleted_entities.begin(), _prev_deleted_entities.end(),
+                    new_entity->entity.name)) {
+            return false;
+        }
+        // if new entity has a remote source, request for sdf inorder to spawn locally
+        if (new_entity->hops != 0) {
+            EntityRequest req{source.address, new_entity->entity.name, ""};
+            _entity_requests.emplace(++_entity_request_count, std::move(req));
+            return true;
+        }
+    }
+    return true;
 }
 
 void GazeboVsm::onVsmReqMsg(const void* buffer, size_t len) {
@@ -208,196 +389,6 @@ void GazeboVsm::onVsmRepMsg(const void* buffer, size_t len) {
     entity_request->second.sdf = msg->name()->str();
 }
 
-void GazeboVsm::onWorldCreated(std::string world_name) {
-    if (_world) {
-        throw std::runtime_error("VSM plugin: multiple worlds not supported.");
-    }
-    _world = gazebo::physics::get_world(world_name);
-    if (!_world) {
-        throw std::runtime_error(
-                "VSM plugin: physics::get_world() fail to return world " + world_name);
-    }
-    // update model pointers for synced entities in world
-    for (auto& synced_entity : _synced_entities) {
-        synced_entity.second.model = _world->ModelByName(synced_entity.first);
-    }
-    _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(WORLD_CREATED)), world_name.c_str());
-    // find tracked entity if configured
-    auto tracked_name = yamlField(_yaml, "tracked_entity", false);
-    _tracked_entity = _world->EntityByName(tracked_name);
-    if (_tracked_entity) {
-        _logger->log(
-                vsm::Logger::INFO, vsm::Error(STRERR(TRACKED_ENTITY_FOUND)), tracked_name.c_str());
-    }
-}
-
-void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo&) {
-    // skip first round before there is anything to sync
-    if (!_model_state_sdf) {
-        auto states_sdf = _world->SDF()->GetElement("state");
-        states_sdf->ClearElements();
-        _model_state_sdf = states_sdf->AddElement("model");
-        return;
-    }
-    const auto vsm_entities_callback = [&](const vsm::EgoSphere::EntityLookup& vsm_entities) {
-        std::sort(_added_entities.begin(), _added_entities.end());
-        for (const auto& synced_entity : _synced_entities) {
-            // skip if entity was already deleted
-            if (!synced_entity.second.model || !synced_entity.second.model->GetWorld()) {
-                continue;
-            }
-            // look for entity in vsm egosphere
-            auto vsm_entity = vsm_entities.find(synced_entity.first);
-            // deleted entity if not found in vsm egosphere and not recently added
-            if (vsm_entity == vsm_entities.end()) {
-                if (!std::binary_search(
-                            _added_entities.begin(), _added_entities.end(), synced_entity.first)) {
-                    _world->RemoveModel(synced_entity.second.model);
-                    _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(VSM_ENTITY_DELETED)),
-                            synced_entity.first.c_str());
-                }
-                continue;
-            }
-            // skip sync if entity update was self generated
-            if (!vsm_entity->second.hops) {
-                continue;
-            }
-            // parse message and update model
-            const auto& data = vsm_entity->second.entity.data;
-            if (parseModelState(_model_state, data.data(), data.size())) {
-                synced_entity.second.model->SetState(_model_state);
-                // std::cout << "Parsed:\r\n" << _model_state_sdf->ToString("") << std::endl;
-            }
-        }
-        _added_entities.clear();
-
-        // add pending entities
-        for (auto req = _entity_requests.begin(); req != _entity_requests.end();) {
-            if (_synced_entities.find(req->second.name) != _synced_entities.end()) {
-                // delete request if entity already exist
-                req = _entity_requests.erase(req);
-            } else if (!req->second.sdf.empty()) {
-                // create model if response sdf is received
-                _world->InsertModelString("<sdf version='1.6'>" + req->second.sdf + "</sdf>");
-                _logger->log(vsm::Logger::INFO,
-                        vsm::Error(STRERR(REQUEST_RESPONSE_RECEIVED), req->first),
-                        req->second.name.c_str());
-                // std::cout << "got req: \r\n" << req->second.sdf << std::endl;
-                req = _entity_requests.erase(req);
-            } else {
-                // send request again otherwise
-                vsm::NodeInfoT msg;
-                msg.address = req->second.source;
-                msg.name = req->second.name;
-                msg.sequence = req->first;
-                if (sendMsg(std::move(msg), "req")) {
-                    _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(REQUEST_SENT), req->first),
-                            req->second.name.c_str());
-                }
-                ++req;
-            }
-        }
-    };
-    _mesh_node->readEntities(vsm_entities_callback);
-}
-
-void GazeboVsm::onWorldUpdateEnd() {
-    // update mesh node pose based on tracked entity
-    if (_tracked_entity && _tracked_entity->GetWorld()) {
-        _mesh_node->getPeerTracker().getNodeInfo().coordinates = getEntityCoords(*_tracked_entity);
-    }
-    // convert synced entities list to message and broadcast
-    std::vector<vsm::EntityT> entity_msgs;
-    entity_msgs.reserve(_synced_entities.size());
-    for (auto synced_entity = _synced_entities.begin(); synced_entity != _synced_entities.end();) {
-        // skip invalid entity
-        if (!synced_entity->second.model) {
-            ++synced_entity;
-            continue;
-        }
-        entity_msgs.emplace_back(synced_entity->second.msg);
-        if (synced_entity->second.model->GetWorld()) {
-            // serialize entity message
-            physics::ModelState model_state(synced_entity->second.model);
-            _model_state_sdf->ClearElements();
-            model_state.FillSDF(_model_state_sdf);
-            auto model_sdf_str = _model_state_sdf->ToString("");
-            entity_msgs.back().data.assign(model_sdf_str.begin(), model_sdf_str.end());
-            entity_msgs.back().coordinates = getEntityCoords(*synced_entity->second.model);
-            ++synced_entity;
-        } else {
-            // delete entities that are zeroed out (but include expiry message in broadcast)
-            entity_msgs.back().expiry = 0;
-            entity_msgs.back().coordinates = getEntityCoords(*synced_entity->second.model);
-            _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(SYNCED_ENTITY_DELETED)),
-                    synced_entity->first.c_str());
-            synced_entity = _synced_entities.erase(synced_entity);
-        }
-    }
-    auto msgs = _mesh_node->updateEntities(entity_msgs, true);
-}
-
-void GazeboVsm::onAddEntity(std::string entity_name) {
-    // match tracked entity if configured
-    if (!_tracked_entity && _world && entity_name == yamlField(_yaml, "tracked_entity", false)) {
-        _tracked_entity = _world->EntityByName(entity_name);
-        _logger->log(
-                vsm::Logger::INFO, vsm::Error(STRERR(TRACKED_ENTITY_FOUND)), entity_name.c_str());
-    }
-    // add entity to synced_entities if name pattern is matched
-    for (const auto& synced_entity : _yaml["synced_entities"]) {
-        if (std::regex_match(entity_name, std::regex(yamlField(synced_entity, "name_pattern")))) {
-            vsm::EntityT entity_msg;
-            entity_msg.name = entity_name;
-            entity_msg.filter =
-                    static_cast<vsm::Filter>(std::stoi(yamlField(synced_entity, "filter")));
-            entity_msg.hop_limit = std::stoul(yamlField(synced_entity, "hop_limit"));
-            entity_msg.range = std::stof(yamlField(synced_entity, "range"));
-            entity_msg.expiry = std::stoul(yamlField(synced_entity, "expiry"));
-            _synced_entities[entity_name] = {_world ? boost::dynamic_pointer_cast<physics::Model>(
-                                                              _world->BaseByName(entity_name))
-                                                    : nullptr,
-                    std::move(entity_msg), synced_entity};
-            _added_entities.push_back(entity_name);
-            _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(SYNCED_ENTITY_ADDED)),
-                    entity_name.c_str());
-            break;
-        }
-    }
-}
-
-bool GazeboVsm::onVsmUpdate(vsm::EgoSphere::EntityUpdate* new_entity,
-        const vsm::EgoSphere::EntityUpdate* old_entity, const vsm::NodeInfoT& source) {
-    // const auto& self = _mesh_node->getPeerTracker().getNodeInfo();
-
-    // add to deleted entities
-    if (!new_entity) {
-        _deleted_entities.push_back(old_entity->entity.name);
-        return true;
-    }
-    // reset deleted entities list every time self simulation updates
-    if (new_entity->hops == 0 && new_entity->source_timestamp != _prev_msg_ts) {
-        _prev_msg_ts = new_entity->source_timestamp;
-        std::sort(_deleted_entities.begin(), _deleted_entities.end());
-        _prev_deleted_entities.swap(_deleted_entities);
-        _deleted_entities.clear();
-    }
-    if (!old_entity) {
-        // only allow entity creation if entity wasn't deleted in the previous round
-        if (std::binary_search(_prev_deleted_entities.begin(), _prev_deleted_entities.end(),
-                    new_entity->entity.name)) {
-            return false;
-        }
-        // if new entity has a remote source, request for sdf inorder to spawn
-        if (new_entity->hops != 0) {
-            EntityRequest req{source.address, new_entity->entity.name, ""};
-            _entity_requests.emplace(++_entity_request_count, std::move(req));
-            return true;
-        }
-    }
-    return true;
-}
-
 bool GazeboVsm::sendMsg(vsm::NodeInfoT msg, const char* topic) {
     int connect_error = zmq_connect(_tx_socket->handle(), msg.address.c_str());
     if (connect_error) {
@@ -414,6 +405,16 @@ bool GazeboVsm::sendMsg(vsm::NodeInfoT msg, const char* topic) {
     zmq_sendmsg(_tx_socket->handle(), req.handle(), 0);
     zmq_disconnect(_tx_socket->handle(), source_address.c_str());
     return true;
+}
+
+const vsm::NodeInfo* GazeboVsm::parseMsg(const void* buffer, size_t len) const {
+    auto msg = flatbuffers::GetRoot<vsm::NodeInfo>(buffer);
+    flatbuffers::Verifier verifier(static_cast<const uint8_t*>(buffer), len);
+    if (!msg->Verify(verifier)) {
+        _logger->log(vsm::Logger::WARN, vsm::Error(STRERR(MESSAGE_VERIFY_FAIL)), buffer, len);
+        return nullptr;
+    }
+    return msg;
 }
 
 bool GazeboVsm::parseModelState(physics::ModelState& model_state, const void* data, size_t len) {

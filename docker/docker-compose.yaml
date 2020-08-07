@@ -3,11 +3,12 @@ version: "2.3"
 
 services:
   sim_node:
-    scale: 2
+    scale: 6
     image: gazebo_ros_vsm_demo
     ports:
       - 8080
     environment:
+      - SPAWN_YAW=-1.57
       - VSM_VERBOSITY=2
     build:
       dockerfile: docker/Dockerfile

@@ -379,6 +379,7 @@ void GazeboVsm::onVsmReqMsg(const void* buffer, size_t len) {
         _logger->log(vsm::Logger::WARN, vsm::Error(STRERR(REQUEST_NONEXISTING_ENTITY)), msg, len);
     } else {
         auto entity_sdf = synced_entity->second.model->GetSDF();
+        remove_plugins(entity_sdf);
         rep.name = gzip::compress(entity_sdf->ToString(""));
     }
     if (sendMsg(std::move(rep), "rep")) {
@@ -460,6 +461,16 @@ void GazeboVsm::parseSdf(const pugi::xml_node& node, sdf::ElementPtr sdf) {
     for (const auto& elem : node.children()) {
         if (*elem.name()) {
             parseSdf(elem, sdf->AddElement(elem.name()));
+        }
+    }
+}
+
+void GazeboVsm::remove_plugins(sdf::ElementPtr elem) {
+    for (auto child = elem->GetFirstElement(); child; child = child->GetNextElement()) {
+        if (child->GetName() == "plugin") {
+            child->RemoveFromParent();
+        } else {
+            remove_plugins(child);
         }
     }
 }

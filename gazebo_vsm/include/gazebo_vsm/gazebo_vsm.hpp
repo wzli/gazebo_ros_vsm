@@ -69,6 +69,7 @@ private:
     const vsm::NodeInfo* parseMsg(const void* buffer, size_t len) const;
     bool parseModelState(physics::ModelState& model_state, const void* data, size_t len);
     static void parseSdf(const pugi::xml_node& node, sdf::ElementPtr sdf);
+    static void remove_plugins(sdf::ElementPtr elem);
     static std::vector<float> getEntityCoords(const physics::Entity& model);
     std::string envSubstitute(std::string str, bool required = true) const;
     std::string yamlField(YAML::Node node, std::string field, bool required = true) const;

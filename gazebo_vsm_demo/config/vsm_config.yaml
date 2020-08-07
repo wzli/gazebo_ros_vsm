@@ -77,29 +77,29 @@ synced_entities:
   - name_pattern: $VSM_NAME
     filter: 1
     hop_limit: 0
-    range: 10
-    expiry: 5000
+    range: 0
+    expiry: 10000
 
   - name_pattern: "robot.*"
     filter: 0
     hop_limit: 0
-    range: 10
-    expiry: 5000
+    range: 0
+    expiry: 10000
 
   - name_pattern: "Construction.*"
     filter: 1
     hop_limit: 0
     range: 20
-    expiry: 5000
+    expiry: 10000
 
   - name_pattern: "Dumpster.*"
     filter: 1
     hop_limit: 0
     range: 20
-    expiry: 5000
+    expiry: 10000
 
   - name_pattern: "Box.*"
     filter: 1
     hop_limit: 0
     range: 10
-    expiry: 5000
+    expiry: 10000

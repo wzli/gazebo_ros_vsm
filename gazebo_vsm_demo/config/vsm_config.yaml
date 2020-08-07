@@ -71,11 +71,17 @@ remapped_entities:
 # List of entity name patterns to synchronize.
 # Synced entity is associated with the first name pattern matched.
 # Regex format: https://en.cppreference.com/w/cpp/regex/ecmascript
-# filter 0 -> all, 1 -> nearest
+# filter 0 -> (receive and forward updates only), 1 -> (broadcast using nearest routing filter)
 # range and hop limit 0 -> inf
 synced_entities:
-  - name_pattern: "robot.*"
+  - name_pattern: $VSM_NAME
     filter: 1
+    hop_limit: 0
+    range: 10
+    expiry: 5000
+
+  - name_pattern: "robot.*"
+    filter: 0
     hop_limit: 0
     range: 10
     expiry: 5000

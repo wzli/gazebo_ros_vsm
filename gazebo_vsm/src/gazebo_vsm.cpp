@@ -262,24 +262,30 @@ void GazeboVsm::onWorldUpdateEnd() {
             ++synced_entity;
             continue;
         }
-        entity_msgs.emplace_back(synced_entity->second.msg);
-        if (synced_entity->second.model->GetWorld()) {
-            // serialize entity message
-            physics::ModelState model_state(synced_entity->second.model);
-            _model_state_sdf->ClearElements();
-            model_state.FillSDF(_model_state_sdf);
-            auto model_sdf_str = _model_state_sdf->ToString("");
-            entity_msgs.back().data.assign(model_sdf_str.begin(), model_sdf_str.end());
-            entity_msgs.back().coordinates = getEntityCoords(*synced_entity->second.model);
-            ++synced_entity;
-        } else {
-            // delete entities that are zeroed out (but include expiry message in broadcast)
+        // delete entities that are zeroed out (but include expiry message in broadcast)
+        if (!synced_entity->second.model->GetWorld()) {
+            entity_msgs.emplace_back(synced_entity->second.msg);
             entity_msgs.back().expiry = 0;
             entity_msgs.back().coordinates = getEntityCoords(*synced_entity->second.model);
             _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(SYNCED_ENTITY_DELETED)),
                     synced_entity->first.c_str());
             synced_entity = _synced_entities.erase(synced_entity);
+            continue;
         }
+        // don't broadcast entity if filter is ALL (to avoid conficts with source)
+        if (synced_entity->second.msg.filter == vsm::Filter::ALL) {
+            ++synced_entity;
+            continue;
+        }
+        // serialize entity message
+        physics::ModelState model_state(synced_entity->second.model);
+        _model_state_sdf->ClearElements();
+        model_state.FillSDF(_model_state_sdf);
+        auto model_sdf_str = _model_state_sdf->ToString("");
+        entity_msgs.emplace_back(synced_entity->second.msg);
+        entity_msgs.back().data.assign(model_sdf_str.begin(), model_sdf_str.end());
+        entity_msgs.back().coordinates = getEntityCoords(*synced_entity->second.model);
+        ++synced_entity;
     }
     // broadcast new entity updates
     auto msgs = _mesh_node->updateEntities(entity_msgs, true);

@@ -1,5 +1,4 @@
 <launch>
-  <arg name="robot_name" default="$(optenv VSM_NAME /)"/>
   <arg name="x" default="$(optenv SPAWN_X 0)"/>
   <arg name="y" default="$(optenv SPAWN_Y 0)"/>
   <arg name="yaw" default="$(optenv SPAWN_YAW 0)"/>
@@ -17,8 +16,6 @@
   <include file="$(find husky_gazebo)/launch/spawn_husky.launch">
     <arg name="laser_enabled" value="true"/>
     <arg name="kinect_enabled" value="false"/>
-    <arg name="robot_namespace" value="$(arg robot_name)"/>
-    <arg name="multimaster" value="true"/>
     <arg name="x" value="$(arg x)"/>
     <arg name="y" value="$(arg y)"/>
     <arg name="yaw" value="$(arg yaw)"/>

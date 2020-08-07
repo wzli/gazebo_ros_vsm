@@ -286,6 +286,16 @@ void GazeboVsm::onWorldUpdateEnd() {
 }
 
 void GazeboVsm::onAddEntity(std::string entity_name) {
+    // scan for name remappings
+    auto remapped_entities = _yaml["remapped_entities"];
+    if (remapped_entities) {
+        auto remap = yamlField(remapped_entities, entity_name, false);
+        if (!remap.empty()) {
+            boost::dynamic_pointer_cast<physics::Model>(_world->BaseByName(entity_name))
+                    ->SetName(remap);
+            entity_name = remap;
+        }
+    }
     // match tracked entity if configured
     if (!_tracked_entity && _world && entity_name == yamlField(_yaml, "tracked_entity", false)) {
         _tracked_entity =

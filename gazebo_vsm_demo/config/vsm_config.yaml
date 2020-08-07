@@ -48,8 +48,8 @@ entity_expiry_interval: 500
 
 # (bytes)
 # Size of entities payload, message size aprox 600B more but may vary.
-# Use to limit message size incase network MTU is exceeded.
-entity_updates_size: 7000
+# Use to limit message size below network MTU to avoid fragmentation
+entity_updates_size: 1000
 
 # Verbosity levels
 # 0 - Trace
@@ -63,8 +63,16 @@ verbosity: $VSM_VERBOSITY
 # Name of entity to center simulation around.
 tracked_entity: $VSM_NAME
 
+# Remap entity names on spawn.
+# Convenient for creating unique instances of synced entities.
+remapped_entities:
+  "/" : $VSM_NAME
+
 # List of entity name patterns to synchronize.
 # Synced entity is associated with the first name pattern matched.
+# Regex format: https://en.cppreference.com/w/cpp/regex/ecmascript
+# filter 0 -> all, 1 -> nearest
+# range and hop limit 0 -> inf
 synced_entities:
   - name_pattern: lkj #$VSM_NAME
     filter: 1

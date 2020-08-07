@@ -8,9 +8,6 @@ services:
     ports:
       - 8080
     environment:
-      - SPAWN_X=0
-      - SPAWN_Y=0
-      - SPAWN_YAW=0
       - VSM_VERBOSITY=2
     build:
       dockerfile: docker/Dockerfile

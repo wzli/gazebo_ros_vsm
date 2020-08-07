@@ -74,7 +74,7 @@ remapped_entities:
 # filter 0 -> all, 1 -> nearest
 # range and hop limit 0 -> inf
 synced_entities:
-  - name_pattern: lkj #$VSM_NAME
+  - name_pattern: "robot.*"
     filter: 1
     hop_limit: 0
     range: 10

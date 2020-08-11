@@ -98,7 +98,7 @@ synced_entities:
     range: 20
     expiry: $VSM_EXPIRY
 
-  - name_pattern: "Box.*"
+  - name_pattern: "box.*"
     filter: 1
     hop_limit: 0
     range: 10

@@ -5,7 +5,7 @@
 name: $VSM_NAME
 
 # Publicly reachable network hostname or address.
-address: $VSM_ADDRESS
+address: $VSM_HOST
 
 # (address:port)
 # Edpoint of known peers within the mesh to join.

@@ -7,9 +7,24 @@
 #include <iostream>
 #include <regex>
 
+// print backtrace on segfault
+#include <execinfo.h>
+#include <signal.h>
+
+static void segfault_handler(int sig) {
+    void* array[10];
+    size_t size;
+    size = backtrace(array, 10);
+    fprintf(stderr, "Error: signal %d:\n", sig);
+    backtrace_symbols_fd(array, size, STDERR_FILENO);
+    exit(1);
+}
+
 namespace gazebo {
 
 void GazeboVsm::Load(int argc, char** argv) {
+    // set segfault handler
+    signal(SIGSEGV, segfault_handler);
     // parse arguments for config yaml file path
     const char* yaml_path = nullptr;
     for (int i = 1; i < argc; ++i) {

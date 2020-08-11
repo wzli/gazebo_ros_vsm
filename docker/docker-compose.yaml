@@ -9,6 +9,8 @@ services:
       - 8080
     environment:
       - SPAWN_YAW=-1.57
+      - VSM_RANGE=10
+      - VSM_EXPIRY=10000
       - VSM_VERBOSITY=2
     build:
       dockerfile: docker/Dockerfile

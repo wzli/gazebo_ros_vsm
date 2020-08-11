@@ -400,7 +400,6 @@ void GazeboVsm::onVsmRepMsg(const void* buffer, size_t len) {
         return;
     }
     if (!msg->name()) {
-        _entity_requests.erase(entity_request);
         _logger->log(vsm::Logger::WARN,
                 vsm::Error(STRERR(REQUEST_RESPONSE_REJECTED), msg->sequence()), msg, len);
         return;

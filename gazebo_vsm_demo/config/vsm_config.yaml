@@ -52,7 +52,7 @@ entity_expiry_interval: 500
 # (bytes)
 # Size of entities payload, message size aprox 600B more but may vary.
 # Use to limit message size below network MTU to avoid UDP fragmentation.
-entity_updates_size: 5000
+entity_updates_size: 0
 
 # Verbosity levels
 # 0 - Trace

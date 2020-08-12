@@ -155,7 +155,7 @@ void GazeboVsm::initVsm() {
     // inject bootstrap peers
     for (const auto& bootstrap_peer : _yaml["bootstrap_peers"]) {
         auto peer_endpoint = envSubstitute(bootstrap_peer.as<std::string>(), false);
-        if (peer_endpoint.empty()) {
+        if (peer_endpoint.empty() || peer_endpoint == " ") {
             continue;
         }
         _mesh_node->getPeerTracker().latchPeer((_protocol + "://" + peer_endpoint).c_str(), 1);
@@ -231,7 +231,8 @@ void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo&) {
             }
             // parse message and update model
             const auto& data = vsm_entity->second.entity.data;
-            if (parseModelState(_model_state, data.data(), data.size())) {
+            auto model_state_sdf = bzip2::decompress(std::string(data.begin(), data.end()));
+            if (parseModelState(_model_state, model_state_sdf.c_str(), model_state_sdf.size())) {
                 synced_entity.second.model->SetState(_model_state);
                 // std::cout << "Parsed:\r\n" << _model_state_sdf->ToString("") << std::endl;
             }
@@ -299,7 +300,7 @@ void GazeboVsm::onWorldUpdateEnd() {
         physics::ModelState model_state(synced_entity->second.model);
         _model_state_sdf->ClearElements();
         model_state.FillSDF(_model_state_sdf);
-        auto model_sdf_str = _model_state_sdf->ToString("");
+        auto model_sdf_str = bzip2::compress(_model_state_sdf->ToString(""));
         entity_msgs.emplace_back(synced_entity->second.msg);
         entity_msgs.back().data.assign(model_sdf_str.begin(), model_sdf_str.end());
         entity_msgs.back().coordinates = getEntityCoords(*synced_entity->second.model);

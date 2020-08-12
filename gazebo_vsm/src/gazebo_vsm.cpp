@@ -257,10 +257,9 @@ void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo&) {
                 msg.address = req->second.source;
                 msg.name = req->second.name;
                 msg.sequence = req->first;
-                if (sendMsg(std::move(msg), "req")) {
-                    _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(REQUEST_SENT), req->first),
-                            req->second.name.c_str());
-                }
+                sendMsg(std::move(msg), "req");
+                _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(REQUEST_SENT), req->first),
+                        req->second.name.c_str());
                 ++req;
             }
         }
@@ -372,7 +371,7 @@ bool GazeboVsm::onVsmUpdate(vsm::EgoSphere::EntityUpdate* new_entity,
         }
         // if new entity has a remote source, request for sdf inorder to spawn locally
         if (new_entity->hops != 0) {
-            EntityRequest req{source.address, new_entity->entity.name, ""};
+            EntityRequest req{source.address, new_entity->entity.name, "", {}};
             _entity_requests.emplace(++_entity_request_count, std::move(req));
             return true;
         }
@@ -392,20 +391,28 @@ void GazeboVsm::onVsmReqMsg(const void* buffer, size_t len) {
     vsm::NodeInfoT rep;
     msg->UnPackTo(&rep);
     auto synced_entity = _synced_entities.find(rep.name);
+    // reject request for non-existing entity
     if (synced_entity == _synced_entities.end() || !synced_entity->second.model ||
             !synced_entity->second.model->GetWorld()) {
         rep.name.clear();
         _logger->log(vsm::Logger::WARN, vsm::Error(STRERR(REQUEST_NONEXISTING_ENTITY)), msg, len);
-    } else {
-        auto entity_sdf = synced_entity->second.model->GetSDF();
-        remove_plugins(entity_sdf);
-        rep.name = bzip2::compress(entity_sdf->ToString(""));
-        // printf("rep size %d\r\n", rep.name.size());
+        sendMsg(std::move(rep), "rep");
+        return;
     }
-    if (sendMsg(std::move(rep), "rep")) {
-        _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(REQUEST_RESPONSE_SENT), msg->sequence()),
-                msg->name()->c_str());
+    auto entity_sdf = synced_entity->second.model->GetSDF();
+    remove_plugins(entity_sdf);
+    auto data = bzip2::compress(entity_sdf->ToString(""));
+    const int chunks = data.size() / 1024 + ((data.size() % 1024) > 0);
+    rep.coordinates = {0, static_cast<float>(chunks)};
+    auto chunk_end = data.begin() + std::min<int>(data.size(), 1024);
+    for (auto chunk_start = data.begin(); chunk_start != data.end(); chunk_start = chunk_end) {
+        chunk_end = chunk_start + std::min<int>(std::distance(chunk_start, data.end()), 1024);
+        rep.name = std::string(chunk_start, chunk_end);
+        sendMsg(rep, "rep");
+        ++rep.coordinates[0];
     }
+    _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(REQUEST_RESPONSE_SENT), msg->sequence()),
+            msg->name()->c_str());
 }
 
 void GazeboVsm::onVsmRepMsg(const void* buffer, size_t len) {
@@ -420,15 +427,31 @@ void GazeboVsm::onVsmRepMsg(const void* buffer, size_t len) {
                 vsm::Error(STRERR(REQUEST_RESPONSE_MISMATCH), msg->sequence()), msg, len);
         return;
     }
-    if (!msg->name()) {
+    if (!msg->coordinates() || msg->coordinates()->size() != 2 ||
+            msg->coordinates()->Get(0) >= msg->coordinates()->Get(1) || !msg->name()) {
         _logger->log(vsm::Logger::WARN,
                 vsm::Error(STRERR(REQUEST_RESPONSE_REJECTED), msg->sequence()), msg, len);
         return;
     }
-    entity_request->second.sdf = bzip2::decompress(msg->name()->str());
+    auto& chunks = entity_request->second.chunks;
+    chunks.resize(msg->coordinates()->Get(1));
+    chunks[msg->coordinates()->Get(0)] = msg->name()->str();
+    if (std::find(chunks.begin(), chunks.end(), std::string()) == chunks.end()) {
+        std::string data;
+        for (const auto& chunk : chunks) {
+            data += chunk;
+        }
+        try {
+            entity_request->second.sdf = bzip2::decompress(data);
+        } catch (const std::exception& e) {
+            _logger->log(vsm::Logger::WARN,
+                    vsm::Error(STRERR(MESSAGE_DECOMPRESS_FAIL), msg->sequence()), msg, len);
+            std::cout << e.what();
+        }
+    }
 }
 
-bool GazeboVsm::sendMsg(vsm::NodeInfoT msg, const char* topic) {
+int GazeboVsm::sendMsg(vsm::NodeInfoT msg, const char* topic) {
     std::string dst_address = _mesh_node->getPeerTracker().getNodeInfo().address;
     dst_address.swap(msg.address);
     auto& transport = _mesh_node->getTransport();
@@ -446,7 +469,7 @@ bool GazeboVsm::sendMsg(vsm::NodeInfoT msg, const char* topic) {
             transport.connect(peer);
         }
     }
-    return !send_error;
+    return send_error;
 }
 
 const vsm::NodeInfo* GazeboVsm::parseMsg(const void* buffer, size_t len) const {

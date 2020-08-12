@@ -25,6 +25,7 @@ public:
 
         // req/rep codes
         MESSAGE_VERIFY_FAIL,
+        MESSAGE_DECOMPRESS_FAIL,
         REQUEST_MISSING_SOURCE,
         REQUEST_NONEXISTING_ENTITY,
         REQUEST_SENT,
@@ -61,10 +62,11 @@ private:
         std::string source;
         std::string name;
         std::string sdf;
+        std::vector<std::string> chunks;
     };
 
     // helper functions
-    bool sendMsg(vsm::NodeInfoT msg, const char* topic);
+    int sendMsg(vsm::NodeInfoT msg, const char* topic);
     const vsm::NodeInfo* parseMsg(const void* buffer, size_t len) const;
     bool parseModelState(physics::ModelState& model_state, const void* data, size_t len);
     static void parseSdf(const pugi::xml_node& node, sdf::ElementPtr sdf);

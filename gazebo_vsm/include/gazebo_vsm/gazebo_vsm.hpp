@@ -24,7 +24,6 @@ public:
         VSM_ENTITY_DELETED,
 
         // req/rep codes
-        SOCKET_CONNECT_FAIL,
         MESSAGE_VERIFY_FAIL,
         REQUEST_MISSING_SOURCE,
         REQUEST_NONEXISTING_ENTITY,
@@ -99,7 +98,7 @@ private:
     // vsm objects
     std::unique_ptr<vsm::MeshNode> _mesh_node;
     std::shared_ptr<vsm::Logger> _logger;
-    std::unique_ptr<zmq::socket_t> _tx_socket;
+    std::string _protocol;
 
     // entity sync buffers
     std::unordered_map<std::string, SyncedEntity> _synced_entities;

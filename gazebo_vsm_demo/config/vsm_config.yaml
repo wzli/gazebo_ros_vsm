@@ -15,6 +15,9 @@ bootstrap_peers:
 # UDP port of the mesh network.
 port: $VSM_PORT
 
+# Select UDP vs TCP (tcp is buggy ATM)
+protocol: udp
+
 # (meters)
 # Default center of simulation.
 initial_coordinates: [0, 0, 0]
@@ -48,8 +51,8 @@ entity_expiry_interval: 500
 
 # (bytes)
 # Size of entities payload, message size aprox 600B more but may vary.
-# Use to limit message size below network MTU to avoid fragmentation
-entity_updates_size: 1000
+# Use to limit message size below network MTU to avoid UDP fragmentation.
+entity_updates_size: 5000
 
 # Verbosity levels
 # 0 - Trace

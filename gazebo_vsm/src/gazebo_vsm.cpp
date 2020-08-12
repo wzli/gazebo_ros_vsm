@@ -1,5 +1,5 @@
 #include <gazebo_vsm/gazebo_vsm.hpp>
-#include <gazebo_vsm/gzip.hpp>
+#include <gazebo_vsm/bzip2.hpp>
 
 #include <algorithm>
 #include <cstdlib>
@@ -7,24 +7,29 @@
 #include <iostream>
 #include <regex>
 
-// print backtrace on segfault
+// print backtrace on fault
+#ifdef __linux__
 #include <execinfo.h>
 #include <signal.h>
 
-static void segfault_handler(int sig) {
-    void* array[10];
+static void fault_handler(int sig) {
+    void* array[20];
     size_t size;
-    size = backtrace(array, 10);
+    size = backtrace(array, 20);
     fprintf(stderr, "Error: signal %d:\n", sig);
     backtrace_symbols_fd(array, size, STDERR_FILENO);
     exit(1);
 }
+#endif
 
 namespace gazebo {
 
 void GazeboVsm::Load(int argc, char** argv) {
-    // set segfault handler
-    signal(SIGSEGV, segfault_handler);
+#ifdef __linux__
+    // set fault handlers
+    signal(SIGSEGV, fault_handler);
+    signal(SIGABRT, fault_handler);
+#endif
     // parse arguments for config yaml file path
     const char* yaml_path = nullptr;
     for (int i = 1; i < argc; ++i) {
@@ -91,7 +96,6 @@ void GazeboVsm::Load(int argc, char** argv) {
                     case MODEL_STATE_SDF_PARSE_FAIL:
                     case BOOTSTRAP_PEER_ADDED:
                     case VSM_ENTITY_DELETED:
-                    case SOCKET_CONNECT_FAIL:
                     case REQUEST_SENT:
                     case REQUEST_RESPONSE_SENT:
                     case REQUEST_RESPONSE_RECEIVED:
@@ -107,7 +111,9 @@ void GazeboVsm::Load(int argc, char** argv) {
 }
 
 void GazeboVsm::initVsm() {
-    auto zmq_transport = std::make_shared<vsm::ZmqTransport>("udp://*:" + yamlField(_yaml, "port"));
+    _protocol = yamlField(_yaml, "protocol");
+    auto zmq_transport =
+            std::make_shared<vsm::ZmqTransport>(_protocol + "://*:" + yamlField(_yaml, "port"));
     _mesh_node = std::make_unique<vsm::MeshNode>(vsm::MeshNode::Config{
             vsm::msecs(std::stoul(yamlField(_yaml, "peer_update_interval"))),
             vsm::msecs(std::stoul(yamlField(_yaml, "entity_expiry_interval"))),
@@ -124,7 +130,8 @@ void GazeboVsm::initVsm() {
             // peer tracker
             {
                     yamlField(_yaml, "name", false),
-                    "udp://" + yamlField(_yaml, "address") + ":" + yamlField(_yaml, "port"),
+                    _protocol + "://" + yamlField(_yaml, "address") + ":" +
+                            yamlField(_yaml, "port"),
                     _yaml["initial_coordinates"]
                             ? _yaml["initial_coordinates"].as<std::vector<float>>()
                             : std::vector<float>(3),
@@ -144,9 +151,6 @@ void GazeboVsm::initVsm() {
                     [this](const void* buffer, size_t len) { onVsmRepMsg(buffer, len); }, "rep")) {
         throw std::runtime_error("VSM plugin: failed to initalize req/rep handlers.");
     }
-    // create req tx socket
-    _tx_socket =
-            std::make_unique<zmq::socket_t>(zmq_transport->getContext(), zmq::socket_type::radio);
 
     // inject bootstrap peers
     for (const auto& bootstrap_peer : _yaml["bootstrap_peers"]) {
@@ -154,7 +158,7 @@ void GazeboVsm::initVsm() {
         if (peer_endpoint.empty()) {
             continue;
         }
-        _mesh_node->getPeerTracker().latchPeer(("udp://" + peer_endpoint).c_str(), 1);
+        _mesh_node->getPeerTracker().latchPeer((_protocol + "://" + peer_endpoint).c_str(), 1);
         _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(BOOTSTRAP_PEER_ADDED)),
                 peer_endpoint.c_str(), peer_endpoint.size());
     }
@@ -395,7 +399,8 @@ void GazeboVsm::onVsmReqMsg(const void* buffer, size_t len) {
     } else {
         auto entity_sdf = synced_entity->second.model->GetSDF();
         remove_plugins(entity_sdf);
-        rep.name = gzip::compress(entity_sdf->ToString(""));
+        rep.name = bzip2::compress(entity_sdf->ToString(""));
+        // printf("rep size %d\r\n", rep.name.size());
     }
     if (sendMsg(std::move(rep), "rep")) {
         _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(REQUEST_RESPONSE_SENT), msg->sequence()),
@@ -409,7 +414,8 @@ void GazeboVsm::onVsmRepMsg(const void* buffer, size_t len) {
         return;
     }
     auto entity_request = _entity_requests.find(msg->sequence());
-    if (entity_request == _entity_requests.end()) {
+    if (entity_request == _entity_requests.end() ||
+            entity_request->second.source != msg->address()->c_str()) {
         _logger->log(vsm::Logger::WARN,
                 vsm::Error(STRERR(REQUEST_RESPONSE_MISMATCH), msg->sequence()), msg, len);
         return;
@@ -419,25 +425,28 @@ void GazeboVsm::onVsmRepMsg(const void* buffer, size_t len) {
                 vsm::Error(STRERR(REQUEST_RESPONSE_REJECTED), msg->sequence()), msg, len);
         return;
     }
-    entity_request->second.sdf = gzip::decompress(msg->name()->str());
+    entity_request->second.sdf = bzip2::decompress(msg->name()->str());
 }
 
 bool GazeboVsm::sendMsg(vsm::NodeInfoT msg, const char* topic) {
-    int connect_error = zmq_connect(_tx_socket->handle(), msg.address.c_str());
-    if (connect_error) {
-        _logger->log(vsm::Logger::WARN, vsm::Error(STRERR(SOCKET_CONNECT_FAIL), connect_error),
-                msg.address.c_str());
-        return false;
+    std::string dst_address = _mesh_node->getPeerTracker().getNodeInfo().address;
+    dst_address.swap(msg.address);
+    auto& transport = _mesh_node->getTransport();
+    for (const auto& peer : _mesh_node->getConnectedPeers()) {
+        if (peer != dst_address) {
+            transport.disconnect(peer);
+        }
     }
-    auto source_address = _mesh_node->getPeerTracker().getNodeInfo().address;
-    msg.address.swap(source_address);
     flatbuffers::FlatBufferBuilder fbb;
     fbb.Finish(vsm::NodeInfo::Pack(fbb, &msg));
-    zmq::message_t req(fbb.GetBufferPointer(), fbb.GetSize());
-    req.set_group(topic);
-    zmq_sendmsg(_tx_socket->handle(), req.handle(), 0);
-    zmq_disconnect(_tx_socket->handle(), source_address.c_str());
-    return true;
+    int send_error = transport.transmit(fbb.GetBufferPointer(), fbb.GetSize(), topic);
+    // printf("send error %d %s\r\n", send_error, zmq_strerror(send_error));
+    for (const auto& peer : _mesh_node->getConnectedPeers()) {
+        if (peer != dst_address) {
+            transport.connect(peer);
+        }
+    }
+    return !send_error;
 }
 
 const vsm::NodeInfo* GazeboVsm::parseMsg(const void* buffer, size_t len) const {

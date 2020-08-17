@@ -64,8 +64,8 @@ void GazeboVsm::Load(int argc, char** argv) {
             [this](std::string entity_name) { onAddEntity(std::move(entity_name)); });
 
     // throw error on disabled events
-    _pause_event = gazebo::event::Events::ConnectPause(
-            [](bool) { throw std::runtime_error("VSM plugin: pause event disabled"); });
+    //_pause_event = gazebo::event::Events::ConnectPause(
+    //        [](bool) { throw std::runtime_error("VSM plugin: pause event disabled"); });
 
     _step_event = gazebo::event::Events::ConnectStep(
             []() { throw std::runtime_error("VSM plugin: step event disabled"); });

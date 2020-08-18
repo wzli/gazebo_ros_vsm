@@ -7,6 +7,7 @@
 #include <yaml-cpp/yaml.h>
 #include <pugixml.hpp>
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 
 namespace gazebo {
@@ -105,6 +106,7 @@ private:
     // entity sync buffers
     std::unordered_map<std::string, SyncedEntity> _synced_entities;
     std::unordered_map<uint32_t, EntityRequest> _entity_requests;
+    std::mutex _entity_requests_mutex;
     std::vector<std::string> _added_entities;
     std::vector<std::string> _deleted_entities;
     std::vector<std::string> _prev_deleted_entities;

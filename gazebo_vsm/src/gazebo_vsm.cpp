@@ -240,6 +240,7 @@ void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo&) {
         _added_entities.clear();
 
         // request for full SDF of new entities broadcasted by other nodes
+        std::lock_guard<std::mutex> entity_requests_lock(_entity_requests_mutex);
         for (auto req = _entity_requests.begin(); req != _entity_requests.end();) {
             if (_synced_entities.find(req->second.name) != _synced_entities.end()) {
                 // delete request if entity already exist
@@ -373,6 +374,7 @@ bool GazeboVsm::onVsmUpdate(vsm::EgoSphere::EntityUpdate* new_entity,
         // if new entity has a remote source, request for sdf inorder to spawn locally
         if (new_entity->hops != 0) {
             EntityRequest req{source.address, new_entity->entity.name, "", {}};
+            std::lock_guard<std::mutex> entity_requests_lock(_entity_requests_mutex);
             _entity_requests.emplace(++_entity_request_count, std::move(req));
             return true;
         }
@@ -421,6 +423,7 @@ void GazeboVsm::onVsmRepMsg(const void* buffer, size_t len) {
     if (!msg) {
         return;
     }
+    std::lock_guard<std::mutex> entity_requests_lock(_entity_requests_mutex);
     auto entity_request = _entity_requests.find(msg->sequence());
     if (entity_request == _entity_requests.end() ||
             entity_request->second.source != msg->address()->c_str()) {

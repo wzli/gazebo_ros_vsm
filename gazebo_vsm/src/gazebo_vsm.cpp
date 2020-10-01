@@ -136,7 +136,7 @@ void GazeboVsm::initVsm() {
                     _yaml["initial_coordinates"]
                             ? _yaml["initial_coordinates"].as<std::vector<float>>()
                             : std::vector<float>(3),
-                    static_cast<uint32_t>(std::stoul(yamlField(_yaml, "group_mask"))),
+                    static_cast<uint32_t>(std::stoul(yamlField(_yaml, "group_mask"), 0, 0)),
                     static_cast<uint32_t>(std::stoul(yamlField(_yaml, "tracking_duration"))),
             },
             zmq_transport, _logger,

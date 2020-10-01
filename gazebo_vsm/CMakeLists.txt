@@ -55,6 +55,7 @@ add_library(${PROJECT_NAME} src/gazebo_vsm.cpp)
 add_dependencies(${PROJECT_NAME} libvsm)
 target_link_libraries(${PROJECT_NAME}
   ${CATKIN_DEVEL_PREFIX}/lib/libvsm.a
+  ${CATKIN_DEVEL_PREFIX}/lib/libquickhull.a
   ${catkin_LIBRARIES}
   ${GAZEBO_LIBRARIES}
   yaml-cpp

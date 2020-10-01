@@ -118,6 +118,7 @@ void GazeboVsm::initVsm() {
             vsm::msecs(std::stoul(yamlField(_yaml, "peer_update_interval"))),
             vsm::msecs(std::stoul(yamlField(_yaml, "entity_expiry_interval"))),
             std::stoul(yamlField(_yaml, "entity_updates_size")),
+            false,  // spectator
             // ego sphere
             {
                     [this](vsm::EgoSphere::EntityUpdate* new_entity,
@@ -135,10 +136,8 @@ void GazeboVsm::initVsm() {
                     _yaml["initial_coordinates"]
                             ? _yaml["initial_coordinates"].as<std::vector<float>>()
                             : std::vector<float>(3),
-                    std::stof(yamlField(_yaml, "power_radius")),
-                    std::stoul(yamlField(_yaml, "connection_degree")),
-                    std::stoul(yamlField(_yaml, "peer_lookup_size")),
-                    std::stof(yamlField(_yaml, "peer_rank_decay")),
+                    static_cast<uint32_t>(std::stoul(yamlField(_yaml, "group_mask"))),
+                    static_cast<uint32_t>(std::stoul(yamlField(_yaml, "tracking_duration"))),
             },
             zmq_transport, _logger,
             // std::function<msecs(void)> local_clock
@@ -527,7 +526,8 @@ void GazeboVsm::remove_plugins(sdf::ElementPtr elem) {
 
 std::vector<float> GazeboVsm::getEntityCoords(const physics::Entity& model) {
     const auto& pos = model.WorldPose().Pos();
-    return {static_cast<float>(pos.X()), static_cast<float>(pos.Y()), static_cast<float>(pos.Z())};
+    // use 2D coords only
+    return {static_cast<float>(pos.X()), static_cast<float>(pos.Y())};
 }
 
 std::string GazeboVsm::envSubstitute(std::string str, bool required) const {

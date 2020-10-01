@@ -18,36 +18,27 @@ port: $VSM_PORT
 # Select UDP vs TCP (tcp is buggy ATM)
 protocol: udp
 
-# (meters)
+# (meters 2D)
 # Default center of simulation.
-initial_coordinates: [0, 0, 0]
+initial_coordinates: [0, 0]
 
-# (meters)
-# Radius of simulation influence.
-# Use -inf for observer nodes.
-power_radius: 0
-
-# Number of directly connected peers to maintain
-connection_degree: 6
-
-# Max number of peers to keep track of.
-peer_lookup_size: 256
-
-# Max number of stale entity timestamps to store.
-# Lookup is queried to reject already received updates.
-timestamp_lookup_size: 1024
-
-# Rate of rank decay every peer update cycle.
-# Used to prune unresponsive peers.
-peer_rank_decay: 0.005
+# Peer connections are maintained only when there are common bits in their group mask.
+group_mask: 0xFFFFFFFF
 
 # (miliseconds)
 # How often to broadcast peer update beacon.
 peer_update_interval: 500
 
+# Number of peer update intervals to retain record of known peers.
+tracking_duration: 20
+
 # (miliseconds)
 # How often to poll for expired entities.
 entity_expiry_interval: 500
+
+# Max number of stale entity timestamps to store.
+# Lookup is queried to reject already received updates.
+timestamp_lookup_size: 1024
 
 # (bytes)
 # Size of entities payload, message size aprox 600B more but may vary.

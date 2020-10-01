@@ -135,7 +135,7 @@ void GazeboVsm::initVsm() {
                             yamlField(_yaml, "port"),
                     _yaml["initial_coordinates"]
                             ? _yaml["initial_coordinates"].as<std::vector<float>>()
-                            : std::vector<float>(3),
+                            : std::vector<float>(2),
                     static_cast<uint32_t>(std::stoul(yamlField(_yaml, "group_mask"), 0, 0)),
                     static_cast<uint32_t>(std::stoul(yamlField(_yaml, "tracking_duration"))),
             },
@@ -270,7 +270,7 @@ void GazeboVsm::onWorldUpdateBegin(const common::UpdateInfo&) {
 void GazeboVsm::onWorldUpdateEnd() {
     // update mesh node pose based on tracked entity
     if (_tracked_entity && _tracked_entity->GetWorld()) {
-        _mesh_node->getPeerTracker().getNodeInfo().coordinates = getEntityCoords(*_tracked_entity);
+        getEntityCoords(_mesh_node->getPeerTracker().getNodeInfo().coordinates, *_tracked_entity);
     }
     // convert synced entities list to message and broadcast
     std::vector<vsm::EntityT> entity_msgs;
@@ -285,7 +285,7 @@ void GazeboVsm::onWorldUpdateEnd() {
         if (!synced_entity->second.model->GetWorld()) {
             entity_msgs.emplace_back(synced_entity->second.msg);
             entity_msgs.back().expiry = 0;
-            entity_msgs.back().coordinates = getEntityCoords(*synced_entity->second.model);
+            getEntityCoords(entity_msgs.back().coordinates, *synced_entity->second.model);
             _logger->log(vsm::Logger::INFO, vsm::Error(STRERR(SYNCED_ENTITY_DELETED)),
                     synced_entity->first.c_str());
             synced_entity = _synced_entities.erase(synced_entity);
@@ -303,7 +303,7 @@ void GazeboVsm::onWorldUpdateEnd() {
         auto model_sdf_str = bzip2::compress(_model_state_sdf->ToString(""));
         entity_msgs.emplace_back(synced_entity->second.msg);
         entity_msgs.back().data.assign(model_sdf_str.begin(), model_sdf_str.end());
-        entity_msgs.back().coordinates = getEntityCoords(*synced_entity->second.model);
+        getEntityCoords(entity_msgs.back().coordinates, *synced_entity->second.model);
         ++synced_entity;
     }
     // broadcast new entity updates
@@ -524,10 +524,12 @@ void GazeboVsm::remove_plugins(sdf::ElementPtr elem) {
     }
 }
 
-std::vector<float> GazeboVsm::getEntityCoords(const physics::Entity& model) {
+void GazeboVsm::getEntityCoords(std::vector<float>& coords, const physics::Entity& model) {
     const auto& pos = model.WorldPose().Pos();
     // use 2D coords only
-    return {static_cast<float>(pos.X()), static_cast<float>(pos.Y())};
+    coords.resize(2);
+    coords[0] = static_cast<float>(pos.X());
+    coords[1] = static_cast<float>(pos.Y());
 }
 
 std::string GazeboVsm::envSubstitute(std::string str, bool required) const {

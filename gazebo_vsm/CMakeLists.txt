@@ -32,6 +32,7 @@ add_definitions(-DZMQ_BUILD_DRAFT_API=1)
 include(ExternalProject)
 ExternalProject_Add(libvsm
   GIT_REPOSITORY https://github.com/wzli/VirtualSpaceMeshnet.git
+  GIT_TAG convex_hull
   CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CATKIN_DEVEL_PREFIX} -DCMAKE_CXX_FLAGS="-fPIC"
 )
 ExternalProject_Get_Property(libvsm install_dir)
@@ -54,6 +55,7 @@ add_library(${PROJECT_NAME} src/gazebo_vsm.cpp)
 add_dependencies(${PROJECT_NAME} libvsm)
 target_link_libraries(${PROJECT_NAME}
   ${CATKIN_DEVEL_PREFIX}/lib/libvsm.a
+  ${CATKIN_DEVEL_PREFIX}/lib/libquickhull.a
   ${catkin_LIBRARIES}
   ${GAZEBO_LIBRARIES}
   yaml-cpp
